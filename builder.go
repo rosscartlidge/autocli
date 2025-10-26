@@ -98,6 +98,12 @@ type FlagBuilder struct {
 	spec *FlagSpec
 }
 
+// ArgBuilder provides a fluent API for configuring a single argument
+type ArgBuilder struct {
+	fb       *FlagBuilder
+	argIndex int
+}
+
 // Global sets the flag scope to global (applies to entire command)
 func (fb *FlagBuilder) Global() *FlagBuilder {
 	fb.spec.Scope = ScopeGlobal
@@ -246,6 +252,51 @@ func (fb *FlagBuilder) Hidden() *FlagBuilder {
 func (fb *FlagBuilder) Accumulate() *FlagBuilder {
 	fb.spec.IsSlice = true
 	return fb
+}
+
+// Arg starts defining a new argument (fluent API alternative to Args() + ArgName/ArgType/ArgCompleter)
+func (fb *FlagBuilder) Arg(name string) *ArgBuilder {
+	// On first call, clear the default single-arg setup
+	if fb.spec.ArgCount == 1 && len(fb.spec.ArgNames) == 1 && fb.spec.ArgNames[0] == "VALUE" {
+		fb.spec.ArgCount = 0
+		fb.spec.ArgNames = []string{}
+		fb.spec.ArgTypes = []ArgType{}
+		fb.spec.ArgCompleters = []Completer{}
+	}
+
+	// Add a new argument slot
+	argIndex := len(fb.spec.ArgNames)
+
+	fb.spec.ArgCount = argIndex + 1
+	fb.spec.ArgNames = append(fb.spec.ArgNames, name)
+	fb.spec.ArgTypes = append(fb.spec.ArgTypes, ArgString) // Default to string
+	fb.spec.ArgCompleters = append(fb.spec.ArgCompleters, NoCompleter{}) // Default to no completer
+
+	return &ArgBuilder{
+		fb:       fb,
+		argIndex: argIndex,
+	}
+}
+
+// Type sets the type for this argument
+func (ab *ArgBuilder) Type(t ArgType) *ArgBuilder {
+	if ab.argIndex >= 0 && ab.argIndex < len(ab.fb.spec.ArgTypes) {
+		ab.fb.spec.ArgTypes[ab.argIndex] = t
+	}
+	return ab
+}
+
+// Completer sets the completer for this argument
+func (ab *ArgBuilder) Completer(c Completer) *ArgBuilder {
+	if ab.argIndex >= 0 && ab.argIndex < len(ab.fb.spec.ArgCompleters) {
+		ab.fb.spec.ArgCompleters[ab.argIndex] = c
+	}
+	return ab
+}
+
+// Done finalizes the argument and returns to the flag builder
+func (ab *ArgBuilder) Done() *FlagBuilder {
+	return ab.fb
 }
 
 // Done finalizes the flag and returns to the command builder
