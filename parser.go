@@ -1,0 +1,407 @@
+package completionflags
+
+import (
+	"fmt"
+	"reflect"
+	"strconv"
+	"strings"
+)
+
+// Execute parses arguments and runs the handler
+func (cmd *Command) Execute(args []string) error {
+	// Check for special flags first
+	if len(args) > 0 {
+		switch args[0] {
+		case "-help", "--help", "-h":
+			fmt.Println(cmd.GenerateHelp())
+			return nil
+		case "-man":
+			fmt.Println(cmd.GenerateManPage())
+			return nil
+		case "-complete":
+			if len(args) < 2 {
+				return fmt.Errorf("-complete requires position argument")
+			}
+			return cmd.handleCompletion(args[1:])
+		case "-completion-script":
+			fmt.Print(cmd.GenerateCompletionScript())
+			return nil
+		}
+	}
+
+	// Parse into clauses
+	ctx, err := cmd.Parse(args)
+	if err != nil {
+		return err
+	}
+
+	// Validate
+	if err := cmd.validate(ctx); err != nil {
+		return err
+	}
+
+	// Bind values to pointers
+	if err := cmd.bindValues(ctx); err != nil {
+		return err
+	}
+
+	// Execute handler
+	return cmd.handler(ctx)
+}
+
+// Parse breaks arguments into clauses
+func (cmd *Command) Parse(args []string) (*Context, error) {
+	ctx := &Context{
+		Command:     cmd,
+		Clauses:     []Clause{},
+		GlobalFlags: make(map[string]interface{}),
+		RawArgs:     args,
+	}
+
+	currentClause := Clause{
+		Separator:  "",
+		Flags:      make(map[string]interface{}),
+		Positional: []string{},
+	}
+
+	i := 0
+	for i < len(args) {
+		arg := args[i]
+
+		// Check if this is a clause separator
+		if cmd.isSeparator(arg) {
+			// Save current clause
+			ctx.Clauses = append(ctx.Clauses, currentClause)
+
+			// Start new clause
+			currentClause = Clause{
+				Separator:  arg,
+				Flags:      make(map[string]interface{}),
+				Positional: []string{},
+			}
+			i++
+			continue
+		}
+
+		// Check if this is a flag (starts with - or +)
+		if strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "+") {
+			consumed, err := cmd.parseFlag(args, i, &currentClause, ctx.GlobalFlags)
+			if err != nil {
+				return nil, err
+			}
+			i += consumed
+			continue
+		}
+
+		// Positional argument
+		currentClause.Positional = append(currentClause.Positional, arg)
+		i++
+	}
+
+	// Save final clause
+	ctx.Clauses = append(ctx.Clauses, currentClause)
+
+	// Apply defaults
+	cmd.applyDefaults(ctx)
+
+	return ctx, nil
+}
+
+// parseFlag handles both -flag and +flag
+func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, global map[string]interface{}) (int, error) {
+	flagArg := args[pos]
+	hasPlus := strings.HasPrefix(flagArg, "+")
+
+	// Normalize to find flag spec (remove prefix)
+	normalized := flagArg
+	if hasPlus {
+		normalized = "-" + flagArg[1:]
+	}
+
+	spec := cmd.findFlagSpec(normalized)
+	if spec == nil {
+		return 0, ParseError{
+			Flag:    flagArg,
+			Message: "unknown flag",
+		}
+	}
+
+	// Determine target storage based on scope
+	var target map[string]interface{}
+	if spec.Scope == ScopeGlobal {
+		target = global
+	} else {
+		target = clause.Flags
+	}
+
+	// Parse based on argument count
+	if spec.ArgCount == 0 {
+		// Boolean flag - no arguments
+		value := true
+		finalValue := cmd.getPrefixHandler()(spec.Names[0], hasPlus, value)
+		target[spec.Names[0]] = finalValue
+		return 1, nil
+	}
+
+	// Check we have enough arguments
+	if pos+spec.ArgCount >= len(args) {
+		return 0, ParseError{
+			Flag:    flagArg,
+			Message: fmt.Sprintf("requires %d argument(s)", spec.ArgCount),
+		}
+	}
+
+	// Parse arguments
+	if spec.ArgCount == 1 {
+		// Single argument
+		value, err := parseArgValue(args[pos+1], spec.ArgTypes[0])
+		if err != nil {
+			return 0, ParseError{
+				Flag:    flagArg,
+				Message: fmt.Sprintf("invalid argument: %v", err),
+			}
+		}
+
+		// Apply prefix handler
+		finalValue := cmd.getPrefixHandler()(spec.Names[0], hasPlus, value)
+
+		// Handle slices (accumulate) vs single values (replace)
+		if spec.IsSlice {
+			existing, ok := target[spec.Names[0]]
+			if !ok {
+				target[spec.Names[0]] = []interface{}{finalValue}
+			} else {
+				slice := existing.([]interface{})
+				target[spec.Names[0]] = append(slice, finalValue)
+			}
+		} else {
+			target[spec.Names[0]] = finalValue
+		}
+
+		return 1 + spec.ArgCount, nil
+	}
+
+	// Multi-argument flag
+	argMap := make(map[string]interface{})
+	for i := 0; i < spec.ArgCount; i++ {
+		value, err := parseArgValue(args[pos+1+i], spec.ArgTypes[i])
+		if err != nil {
+			return 0, ParseError{
+				Flag:    flagArg,
+				Message: fmt.Sprintf("invalid argument %d: %v", i, err),
+			}
+		}
+		argMap[spec.ArgNames[i]] = value
+	}
+
+	// Apply prefix handler
+	finalValue := cmd.getPrefixHandler()(spec.Names[0], hasPlus, argMap)
+
+	// Handle slices (accumulate) vs single values (replace)
+	if spec.IsSlice {
+		existing, ok := target[spec.Names[0]]
+		if !ok {
+			target[spec.Names[0]] = []interface{}{finalValue}
+		} else {
+			slice := existing.([]interface{})
+			target[spec.Names[0]] = append(slice, finalValue)
+		}
+	} else {
+		target[spec.Names[0]] = finalValue
+	}
+
+	return 1 + spec.ArgCount, nil
+}
+
+// parseArgValue converts a string to the appropriate type
+func parseArgValue(value string, argType ArgType) (interface{}, error) {
+	switch argType {
+	case ArgString:
+		return value, nil
+	case ArgInt:
+		return strconv.Atoi(value)
+	case ArgFloat:
+		return strconv.ParseFloat(value, 64)
+	case ArgBool:
+		return strconv.ParseBool(value)
+	default:
+		return value, nil
+	}
+}
+
+// applyDefaults applies default values to flags that weren't specified
+func (cmd *Command) applyDefaults(ctx *Context) {
+	for _, spec := range cmd.flags {
+		if spec.Default == nil {
+			continue
+		}
+
+		if spec.Scope == ScopeGlobal {
+			if _, exists := ctx.GlobalFlags[spec.Names[0]]; !exists {
+				ctx.GlobalFlags[spec.Names[0]] = spec.Default
+			}
+		} else {
+			// Apply to each clause
+			for i := range ctx.Clauses {
+				if _, exists := ctx.Clauses[i].Flags[spec.Names[0]]; !exists {
+					ctx.Clauses[i].Flags[spec.Names[0]] = spec.Default
+				}
+			}
+		}
+	}
+}
+
+// validate checks required flags and runs custom validators
+func (cmd *Command) validate(ctx *Context) error {
+	for _, spec := range cmd.flags {
+		if spec.Required {
+			if spec.Scope == ScopeGlobal {
+				if _, exists := ctx.GlobalFlags[spec.Names[0]]; !exists {
+					return ValidationError{
+						Flag:    spec.Names[0],
+						Message: "required flag not provided",
+					}
+				}
+			} else {
+				// For local flags, check at least one clause has it
+				found := false
+				for _, clause := range ctx.Clauses {
+					if _, exists := clause.Flags[spec.Names[0]]; exists {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return ValidationError{
+						Flag:    spec.Names[0],
+						Message: "required flag not provided in any clause",
+					}
+				}
+			}
+		}
+
+		// Run custom validator if provided
+		if spec.Validator != nil {
+			if spec.Scope == ScopeGlobal {
+				if value, exists := ctx.GlobalFlags[spec.Names[0]]; exists {
+					if err := spec.Validator(value); err != nil {
+						return ValidationError{
+							Flag:    spec.Names[0],
+							Message: err.Error(),
+						}
+					}
+				}
+			} else {
+				// Validate in each clause
+				for i, clause := range ctx.Clauses {
+					if value, exists := clause.Flags[spec.Names[0]]; exists {
+						if err := spec.Validator(value); err != nil {
+							return ValidationError{
+								Flag:    fmt.Sprintf("%s (clause %d)", spec.Names[0], i),
+								Message: err.Error(),
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// bindValues binds parsed values to pointers using reflection
+func (cmd *Command) bindValues(ctx *Context) error {
+	for _, spec := range cmd.flags {
+		if spec.Pointer == nil {
+			continue
+		}
+
+		ptr := reflect.ValueOf(spec.Pointer)
+		if ptr.Kind() != reflect.Ptr {
+			continue
+		}
+
+		elem := ptr.Elem()
+		if !elem.CanSet() {
+			continue
+		}
+
+		var value interface{}
+		var exists bool
+
+		if spec.Scope == ScopeGlobal {
+			value, exists = ctx.GlobalFlags[spec.Names[0]]
+		} else {
+			// For local scope, bind from first clause (or could be last, user's choice)
+			// TODO: This might need to be configurable
+			if len(ctx.Clauses) > 0 {
+				value, exists = ctx.Clauses[0].Flags[spec.Names[0]]
+			}
+		}
+
+		if !exists {
+			continue
+		}
+
+		// Set the value using reflection
+		if err := setValue(elem, value); err != nil {
+			return fmt.Errorf("binding %s: %w", spec.Names[0], err)
+		}
+	}
+
+	return nil
+}
+
+// setValue sets a reflect.Value from an interface{} value
+func setValue(target reflect.Value, value interface{}) error {
+	if value == nil {
+		return nil
+	}
+
+	valueReflect := reflect.ValueOf(value)
+
+	// Handle direct assignment if types match
+	if valueReflect.Type().AssignableTo(target.Type()) {
+		target.Set(valueReflect)
+		return nil
+	}
+
+	// Handle type conversions
+	switch target.Kind() {
+	case reflect.String:
+		if v, ok := value.(string); ok {
+			target.SetString(v)
+			return nil
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if v, ok := value.(int); ok {
+			target.SetInt(int64(v))
+			return nil
+		}
+	case reflect.Float32, reflect.Float64:
+		if v, ok := value.(float64); ok {
+			target.SetFloat(v)
+			return nil
+		}
+	case reflect.Bool:
+		if v, ok := value.(bool); ok {
+			target.SetBool(v)
+			return nil
+		}
+	case reflect.Slice:
+		// Handle slice types
+		if slice, ok := value.([]interface{}); ok {
+			newSlice := reflect.MakeSlice(target.Type(), len(slice), len(slice))
+			for i, item := range slice {
+				if err := setValue(newSlice.Index(i), item); err != nil {
+					return err
+				}
+			}
+			target.Set(newSlice)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("cannot assign %T to %v", value, target.Type())
+}

@@ -1,0 +1,8 @@
+{
+  "records": [
+    {"name": "Alice", "age": 30, "status": "active", "role": "admin"},
+    {"name": "Bob", "age": 25, "status": "inactive", "role": "user"},
+    {"name": "Charlie", "age": 35, "status": "active", "role": "user"},
+    {"name": "Diana", "age": 28, "status": "active", "role": "admin"}
+  ]
+}
