@@ -2,6 +2,8 @@
 
 There are two ways to configure multi-argument flags: the **index-based API** and the **fluent Arg() API**.
 
+> **⚠️ Most users should use the fluent Arg() API**. The index-based API is provided for advanced use cases like building frameworks or code generators. If you're building a normal application, skip to the fluent API examples below.
+
 ## Index-Based API (Original)
 
 ```go
@@ -66,14 +68,36 @@ Flag("-filter").
 
 ## When to Use Each
 
-### Use Fluent Arg() API When:
-- You have 2+ arguments (**recommended for all multi-arg flags**)
+### Use Fluent Arg() API (Recommended)
+- ✅ **Use this for all normal application development**
+- You have 2+ arguments
 - You want type safety and clarity
 - You're building a new application
 
-### Use Index-Based API When:
-- You need to programmatically configure arguments (e.g., in a loop)
-- You're maintaining existing code
+### Use Index-Based API (Advanced/Framework Use Only)
+- ⚠️ **Only needed for advanced use cases:**
+  - Building frameworks or code generators on top of completionflags
+  - CLI argument structure comes from external config/schema with **variable argument counts**
+  - Maintaining existing code that uses the index-based API
+- Most applications will never need this
+
+**Example Advanced Use Case:**
+```go
+// Framework that generates CLIs from OpenAPI schemas
+func BuildFromSchema(schema OpenAPISchema) *Command {
+    argCount := len(schema.Parameters)  // Variable count!
+
+    fb := Flag("-call").Args(argCount)
+    for i, param := range schema.Parameters {
+        fb.ArgName(i, param.Name)
+        fb.ArgType(i, convertType(param.Type))
+        fb.ArgCompleter(i, buildCompleter(param))
+    }
+    return fb.Done()
+}
+```
+
+If your argument count is **fixed/known at compile time**, use the fluent API instead.
 
 ## Examples
 

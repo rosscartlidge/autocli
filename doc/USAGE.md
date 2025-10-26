@@ -254,7 +254,7 @@ Flag("-filter").
 - ✅ Clear visual grouping
 - ✅ Type defaults to `ArgString` (most common case)
 
-> **Note**: An index-based API exists for programmatic/dynamic configuration (e.g., loops). See [ARG_API_COMPARISON.md](ARG_API_COMPARISON.md) for details.
+> **Note**: An index-based API exists for advanced/framework use (e.g., code generators, dynamic schema). Most applications won't need it. See [ARG_API_COMPARISON.md](ARG_API_COMPARISON.md) for details.
 
 ### Value Handling
 
@@ -1136,7 +1136,7 @@ myapp -filter status eq <TAB>
 
 **Finalize**: `.Done() *CommandBuilder`
 
-> **Note**: Index-based methods (`.Args()`, `.ArgName()`, `.ArgType()`, `.ArgCompleter()`) exist for programmatic configuration. See [ARG_API_COMPARISON.md](ARG_API_COMPARISON.md).
+> **Note**: Index-based methods (`.Args()`, `.ArgName()`, `.ArgType()`, `.ArgCompleter()`) exist for advanced/framework use only. Most applications won't need them. See [ARG_API_COMPARISON.md](ARG_API_COMPARISON.md).
 
 ### Arg Builder
 
