@@ -19,6 +19,7 @@ A powerful, general-purpose Go package for building command-line applications wi
 ### Key Features
 
 - **Fluent Builder API**: Chain methods to configure commands and flags elegantly
+- **Fluent Arg() API**: Safe, index-free multi-argument configuration (recommended!)
 - **Clause-based Grouping**: Group flags into clauses separated by `+` or `-` for Boolean logic
 - **Intelligent Completion**: Context-aware bash completion with pluggable completers
 - **Multi-argument Flags**: Flags can take multiple arguments with per-argument completion
@@ -219,7 +220,7 @@ Flag("-input", "-i")  // Multiple names/aliases
 
 ### Argument Configuration
 
-**Shorthand Methods**:
+**Shorthand Methods** (for simple flags):
 ```go
 .Bool()             // No arguments (presence = true)
 .String()           // Single string argument
@@ -228,7 +229,32 @@ Flag("-input", "-i")  // Multiple names/aliases
 .StringSlice()      // Accumulate multiple string values
 ```
 
-**Explicit Configuration**:
+**Fluent Arg() API** (recommended for multi-argument flags):
+```go
+Flag("-filter").
+    Arg("FIELD").
+        Completer(&cf.StaticCompleter{
+            Options: []string{"status", "age", "role"},
+        }).
+        Done().
+    Arg("OPERATOR").
+        Completer(&cf.StaticCompleter{
+            Options: []string{"eq", "ne", "gt", "lt"},
+        }).
+        Done().
+    Arg("VALUE").
+        Completer(cf.NoCompleter{Hint: "<VALUE>"}).
+        Done().
+    Done()
+```
+
+**Benefits of Fluent Arg() API**:
+- ✅ No index errors possible (arguments added in order)
+- ✅ Auto-counted
+- ✅ Clear visual grouping
+- ✅ Type defaults to `ArgString` (most common case)
+
+**Index-Based API** (backward compatible, use for programmatic config):
 ```go
 .Args(count int)                    // Set number of arguments
 .ArgName(index int, name string)    // Set display name for argument
@@ -236,22 +262,7 @@ Flag("-input", "-i")  // Multiple names/aliases
 .ArgCompleter(index int, completer) // Set completer for specific argument
 ```
 
-**Multi-argument Example**:
-```go
-Flag("-filter").
-    Args(3).
-    ArgName(0, "FIELD").
-    ArgName(1, "OPERATOR").
-    ArgName(2, "VALUE").
-    ArgCompleter(0, &cf.StaticCompleter{
-        Options: []string{"status", "age", "role"},
-    }).
-    ArgCompleter(1, &cf.StaticCompleter{
-        Options: []string{"eq", "ne", "gt", "lt"},
-    }).
-    ArgCompleter(2, cf.NoCompleter{Hint: "<VALUE>"}).
-    Done()
-```
+See [ARG_API_COMPARISON.md](ARG_API_COMPARISON.md) for detailed comparison and migration guide.
 
 ### Value Handling
 
@@ -439,11 +450,30 @@ type CompletionContext struct {
 
 ### Understanding Multi-Argument Flag Values
 
-When you define a flag with multiple arguments, the parsed value is stored as a **`map[string]interface{}`** where the keys are the argument names you defined with `ArgName()`.
+When you define a flag with multiple arguments, the parsed value is stored as a **`map[string]interface{}`** where the keys are the argument names you defined.
 
 #### Single Occurrence
 
-For a flag defined as:
+For a flag defined using the **fluent Arg() API**:
+```go
+Flag("-filter").
+    Arg("FIELD").
+        Completer(&cf.StaticCompleter{
+            Options: []string{"status", "age", "role"},
+        }).
+        Done().
+    Arg("OPERATOR").
+        Completer(&cf.StaticCompleter{
+            Options: []string{"eq", "ne", "gt", "lt"},
+        }).
+        Done().
+    Arg("VALUE").
+        Completer(cf.NoCompleter{Hint: "<VALUE>"}).
+        Done().
+    Done()
+```
+
+Or using the **index-based API**:
 ```go
 Flag("-filter").
     Args(3).
@@ -482,10 +512,19 @@ When using `.Accumulate()`, multiple occurrences create a slice of maps:
 
 ```go
 Flag("-filter").
-    Args(3).
-    ArgName(0, "FIELD").
-    ArgName(1, "OPERATOR").
-    ArgName(2, "VALUE").
+    Arg("FIELD").
+        Completer(&cf.StaticCompleter{
+            Options: []string{"status", "age", "role"},
+        }).
+        Done().
+    Arg("OPERATOR").
+        Completer(&cf.StaticCompleter{
+            Options: []string{"eq", "ne", "gt", "lt"},
+        }).
+        Done().
+    Arg("VALUE").
+        Completer(cf.NoCompleter{Hint: "<VALUE>"}).
+        Done().
     Accumulate().  // Enable accumulation
     Local().
     Done()
@@ -526,17 +565,22 @@ if filterVal, ok := clause.Flags["-filter"]; ok {
 
 #### Value Types in the Map
 
-The map values are typed according to `ArgType()`:
+The map values are typed according to the argument type you specify:
 
 ```go
 Flag("-range").
-    Args(3).
-    ArgName(0, "START").
-    ArgName(1, "END").
-    ArgName(2, "STEP").
-    ArgType(0, cf.ArgInt).
-    ArgType(1, cf.ArgInt).
-    ArgType(2, cf.ArgInt).
+    Arg("START").
+        Type(cf.ArgInt).
+        Completer(cf.NoCompleter{Hint: "<NUMBER>"}).
+        Done().
+    Arg("END").
+        Type(cf.ArgInt).
+        Completer(cf.NoCompleter{Hint: "<NUMBER>"}).
+        Done().
+    Arg("STEP").
+        Type(cf.ArgInt).
+        Completer(cf.NoCompleter{Hint: "<NUMBER>"}).
+        Done().
     Done()
 ```
 
@@ -783,20 +827,19 @@ func main() {
 
         // Local flags (per-clause)
         Flag("-filter").
-            Args(3).
-            ArgName(0, "FIELD").
-            ArgName(1, "OPERATOR").
-            ArgName(2, "VALUE").
-            ArgType(0, cf.ArgString).
-            ArgType(1, cf.ArgString).
-            ArgType(2, cf.ArgString).
-            ArgCompleter(0, &cf.StaticCompleter{
-                Options: []string{"status", "age", "role", "email", "name"},
-            }).
-            ArgCompleter(1, &cf.StaticCompleter{
-                Options: []string{"eq", "ne", "gt", "lt", "gte", "lte", "contains"},
-            }).
-            ArgCompleter(2, cf.NoCompleter{Hint: "<VALUE>"}).
+            Arg("FIELD").
+                Completer(&cf.StaticCompleter{
+                    Options: []string{"status", "age", "role", "email", "name"},
+                }).
+                Done().
+            Arg("OPERATOR").
+                Completer(&cf.StaticCompleter{
+                    Options: []string{"eq", "ne", "gt", "lt", "gte", "lte", "contains"},
+                }).
+                Done().
+            Arg("VALUE").
+                Completer(cf.NoCompleter{Hint: "<VALUE>"}).
+                Done().
             Accumulate().
             Local().
             Help("Add filter condition (can specify multiple per clause)").
@@ -906,32 +949,39 @@ Flag("-sort").Local().Done()
 ### 2. Use Meaningful Argument Names
 
 ```go
-// Good
-.Args(3).
-    ArgName(0, "FIELD").
-    ArgName(1, "OPERATOR").
-    ArgName(2, "VALUE")
+// Good - fluent Arg() API
+Flag("-filter").
+    Arg("FIELD").Done().
+    Arg("OPERATOR").Done().
+    Arg("VALUE").Done().
+    Done()
 
 // Bad
-.Args(3).
-    ArgName(0, "ARG1").
-    ArgName(1, "ARG2").
-    ArgName(2, "ARG3")
+Flag("-filter").
+    Arg("ARG1").Done().
+    Arg("ARG2").Done().
+    Arg("ARG3").Done().
+    Done()
 ```
 
 ### 3. Provide Helpful Hints
 
 ```go
-// For free-form input
-ArgCompleter(2, cf.NoCompleter{Hint: "<VALUE>"})
+// For free-form input (in multi-arg flags)
+Arg("VALUE").
+    Completer(cf.NoCompleter{Hint: "<VALUE>"}).
+    Done()
 
-// For file paths
-FilePattern("*.json")  // Shows <*.json> hint when no files
+// For file paths (single-arg flag)
+Flag("-input").
+    String().
+    FilePattern("*.json").  // Shows <*.json> hint when no files
+    Done()
 
 // For specific types
-cf.NoCompleter{Hint: "<EMAIL>"}
-cf.NoCompleter{Hint: "<URL>"}
-cf.NoCompleter{Hint: "<NUMBER>"}
+Arg("EMAIL").Completer(cf.NoCompleter{Hint: "<EMAIL>"}).Done()
+Arg("URL").Completer(cf.NoCompleter{Hint: "<URL>"}).Done()
+Arg("PORT").Type(cf.ArgInt).Completer(cf.NoCompleter{Hint: "<NUMBER>"}).Done()
 ```
 
 ### 4. Add Usage Examples
@@ -967,8 +1017,10 @@ Flag("-port").
 ```go
 // Allow: -filter a -filter b -filter c
 Flag("-filter").
-    Args(3).
-    Accumulate().  // Creates slice of filters
+    Arg("FIELD").Done().
+    Arg("OPERATOR").Done().
+    Arg("VALUE").Done().
+    Accumulate().  // Creates slice of filter maps
     Local().
     Done()
 ```
@@ -1007,7 +1059,9 @@ ArgCompleter(0, &cf.ChainCompleter{
 
 ```go
 Flag("-filter").
-    Args(3).
+    Arg("FIELD").Done().
+    Arg("OPERATOR").Done().
+    Arg("VALUE").Done().
     Help("Filter records: -filter FIELD OPERATOR VALUE. " +
          "Operators: eq, ne, gt, lt, gte, lte, contains. " +
          "Can specify multiple times per clause.").
@@ -1086,7 +1140,9 @@ myapp -filter status eq <TAB>
 
 **Arguments**: `.Bool()`, `.String()`, `.Int()`, `.Float()`, `.StringSlice()`, `.Args(int)`
 
-**Argument Details**: `.ArgName(idx, name)`, `.ArgType(idx, type)`, `.ArgCompleter(idx, completer)`
+**Fluent Arg() API (Recommended)**: `.Arg(name) *ArgBuilder`
+
+**Argument Details (Index-based)**: `.ArgName(idx, name)`, `.ArgType(idx, type)`, `.ArgCompleter(idx, completer)`
 
 **Values**: `.Bind(ptr)`, `.Default(val)`, `.Required()`, `.Accumulate()`
 
@@ -1099,6 +1155,14 @@ myapp -filter status eq <TAB>
 **Visibility**: `.Hidden()`
 
 **Finalize**: `.Done() *CommandBuilder`
+
+### Arg Builder
+
+**Type**: `.Type(ArgType) *ArgBuilder`
+
+**Completion**: `.Completer(Completer) *ArgBuilder`
+
+**Finalize**: `.Done() *FlagBuilder`
 
 ### Completers
 
