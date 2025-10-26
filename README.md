@@ -1,83 +1,21 @@
-# CompletionFlags
+# completionflags
 
-A general-purpose Go package for building sophisticated CLI applications with:
+A powerful, general-purpose Go package for building sophisticated command-line applications with advanced flag parsing, clause-based argument grouping, and intelligent bash completion.
 
-- **Fluent API** for flag definition
-- **Automatic bash completion** via simple script
-- **Clause-based argument grouping** (using `+` and `-` separators)
-- **Multi-argument flags** with per-argument completion strategies
-- **Auto-generated help** and **man pages**
-- **Pluggable completion system**
-- **User-defined prefix semantics** (`-flag` vs `+flag`)
+[![Go Reference](https://pkg.go.dev/badge/github.com/rosscartlidge/completionflags.svg)](https://pkg.go.dev/github.com/rosscartlidge/completionflags)
 
 ## Features
 
-### 1. Sophisticated Flags
-
-Each flag can have 0 or more arguments, with custom completion for each:
-
-```go
-Flag("-filter").
-    Args(3).
-    ArgName(0, "FIELD").
-    ArgName(1, "OPERATOR").
-    ArgName(2, "VALUE").
-    ArgCompleter(0, FieldCompleter{}).
-    ArgCompleter(1, OperatorCompleter{}).
-    ArgCompleter(2, ValueCompleter{}).
-    Done()
-```
-
-### 2. Automatic Completion
-
-Simple bash completion script that calls your binary:
-
-```bash
-# Generate completion script
-$ mytool -completion-script > ~/.bash_completion.d/mytool
-
-# Now tab completion works!
-$ mytool -format <TAB>
-json  xml  yaml
-```
-
-### 3. Help and Man Pages
-
-Automatically generated from flag definitions:
-
-```bash
-$ mytool -help        # Usage text
-$ mytool -man         # Traditional groff man page
-```
-
-### 4. Clause Support
-
-Group arguments using `+` and `-` separators for complex logic:
-
-```bash
-# Two clauses (separated by +)
-mytool -filter status eq active + -filter role eq admin
-
-# Your handler receives both clauses
-# Interpretation is up to you (OR, AND, sequential, etc.)
-```
-
-### 5. Pluggable Completion
-
-Easy to add custom completers:
-
-```go
-// Built-in completers
-FileCompleter{Pattern: "*.json"}
-StaticCompleter{Options: []string{"foo", "bar"}}
-
-// Custom completer
-type MyCompleter struct{}
-func (c MyCompleter) Complete(ctx CompletionContext) ([]string, error) {
-    // Your logic here
-    return []string{"option1", "option2"}, nil
-}
-```
+- **🔧 Fluent Builder API** - Chain methods to configure commands elegantly
+- **🎯 Fluent Arg() API** - Safe, index-free multi-argument configuration (NEW!)
+- **📋 Clause-based Grouping** - Boolean logic with `+`/`-` separators
+- **✨ Smart Completion** - Context-aware with helpful pattern hints
+- **🔍 Pattern Hints** - Shows `/path/<*.json>` when no files match
+- **🎨 Multi-argument Flags** - Per-argument types and completers
+- **🌐 Global vs Local Scope** - Command-wide or per-clause flags
+- **📖 Auto-generated Help** - `-help` and `-man` pages
+- **🚀 Universal Completion** - Single script for all programs
+- **0️⃣ Zero Dependencies** - Pure Go stdlib
 
 ## Quick Start
 
@@ -87,7 +25,7 @@ func (c MyCompleter) Complete(ctx CompletionContext) ([]string, error) {
 go get github.com/rosscartlidge/completionflags
 ```
 
-### Basic Example
+### Simple Example
 
 ```go
 package main
@@ -98,47 +36,31 @@ import (
     cf "github.com/rosscartlidge/completionflags"
 )
 
-type Config struct {
-    Input   string
-    Format  string
-    Verbose bool
-}
-
 func main() {
-    config := &Config{}
+    var input, format string
 
-    cmd := cf.NewCommand("mytool").
+    cmd := cf.NewCommand("myapp").
         Version("1.0.0").
-        Description("Process files").
+        Description("Process data files").
 
         Flag("-input", "-i").
-            Bind(&config.Input).
+            Bind(&input).
             String().
-            Global().
             Required().
             Help("Input file").
-            FilePattern("*.txt").
+            FilePattern("*.{json,yaml,xml}").
             Done().
 
         Flag("-format", "-f").
-            Bind(&config.Format).
+            Bind(&format).
             String().
-            Global().
             Default("json").
             Help("Output format").
             Options("json", "yaml", "xml").
             Done().
 
-        Flag("-verbose", "-v").
-            Bind(&config.Verbose).
-            Bool().
-            Global().
-            Help("Verbose output").
-            Done().
-
         Handler(func(ctx *cf.Context) error {
-            fmt.Printf("Processing %s in %s format\n",
-                config.Input, config.Format)
+            fmt.Printf("Processing %s as %s\n", input, format)
             return nil
         }).
 
@@ -151,111 +73,135 @@ func main() {
 }
 ```
 
-## Concepts
-
-### Scopes: Global vs Local
-
-- **Global flags**: Apply to the entire command (e.g., input file, output format)
-- **Local flags**: Apply within each clause (e.g., filters, transformations)
-
-```go
-Flag("-input").Global().Done()   // Same for all clauses
-Flag("-filter").Local().Done()   // Different per clause
-```
-
-### Clauses
-
-Arguments are grouped into clauses separated by `+` or `-`:
+### Enable Bash Completion
 
 ```bash
-mytool -x foo -y bar + -x baz -y qux
-#      ^Clause 1^   ^ ^Clause 2^
+# Add to ~/.bashrc or run manually
+eval "$(myapp -completion-script)"
+
+# Now tab completion works!
+myapp -i<TAB>              # completes to -input
+myapp -input <TAB>         # shows *.{json,yaml,xml} files
+myapp -format <TAB>        # shows: json yaml xml
 ```
 
-Your handler receives all clauses and decides how to interpret them:
+## Key Features Explained
+
+### 1. Fluent Arg() API (Recommended for Multi-Argument Flags)
+
+**NEW!** Configure multi-argument flags safely without index errors:
 
 ```go
+// NEW fluent API - safe and readable
+Flag("-filter").
+    Arg("FIELD").
+        Completer(&cf.StaticCompleter{
+            Options: []string{"status", "age", "role"},
+        }).
+        Done().
+    Arg("OPERATOR").
+        Completer(&cf.StaticCompleter{
+            Options: []string{"eq", "ne", "gt", "lt"},
+        }).
+        Done().
+    Arg("VALUE").
+        Completer(cf.NoCompleter{Hint: "<VALUE>"}).
+        Done().
+    Done()
+```
+
+**Benefits:**
+- ✅ No index errors (arguments added in order)
+- ✅ Auto-counted
+- ✅ Clear visual grouping
+- ✅ Type-safe with defaults
+
+See [doc/ARG_API_COMPARISON.md](doc/ARG_API_COMPARISON.md) for details.
+
+### 2. Multi-Argument Flag Values
+
+Multi-arg flags are stored as `map[string]interface{}`:
+
+```go
+// Command: myapp -filter status eq active
 Handler(func(ctx *cf.Context) error {
-    for i, clause := range ctx.Clauses {
-        fmt.Printf("Clause %d:\n", i+1)
-        // Process clause.Flags
+    if filterVal, ok := clause.Flags["-filter"]; ok {
+        filterMap := filterVal.(map[string]interface{})
+        field := filterMap["FIELD"].(string)      // "status"
+        operator := filterMap["OPERATOR"].(string) // "eq"
+        value := filterMap["VALUE"].(string)      // "active"
     }
     return nil
 })
 ```
 
-### Prefix Semantics: `-` vs `+`
-
-The package supports both `-flag` and `+flag` prefixes. The meaning is defined by you:
+With `.Accumulate()`, multiple occurrences create a slice:
 
 ```go
-// Example: + means "negate"
-cmd.PrefixHandler(func(flagName string, hasPlus bool, value interface{}) interface{} {
-    if hasPlus {
-        return !value.(bool)  // Negate boolean
+// Command: myapp -filter status eq active -filter age gt 18
+if filterVal, ok := clause.Flags["-filter"]; ok {
+    filters := filterVal.([]interface{})
+    for _, f := range filters {
+        filterMap := f.(map[string]interface{})
+        // Process each filter
     }
-    return value
+}
+```
+
+### 3. Smart Completion Hints
+
+When no matches are found, helpful hints guide users:
+
+```bash
+myapp -output /tmp/nonexistent/     # Shows: /tmp/nonexistent/<*.json>
+myapp -filter age gt                # Shows: <VALUE>
+```
+
+### 4. Clause-Based Logic
+
+Group flags into clauses for Boolean expressions:
+
+```bash
+# Single clause (AND logic within clause)
+myapp -filter status eq active -filter age gt 18
+
+# Multiple clauses (OR logic between clauses)
+myapp -filter status eq active + -filter role eq admin
+```
+
+```go
+Handler(func(ctx *cf.Context) error {
+    // Process each clause (OR logic)
+    for i, clause := range ctx.Clauses {
+        fmt.Printf("Clause %d:\n", i+1)
+        // Filters within clause have AND logic
+    }
+    return nil
 })
-
-// Now: -verbose = true, +verbose = false
 ```
 
-### Multi-Argument Flags
+## Built-in Completers
 
-Flags can take multiple arguments, each with its own completer:
-
+### FileCompleter
 ```go
-Flag("-match").
-    Args(2).
-    ArgName(0, "FIELD").
-    ArgName(1, "VALUE").
-    ArgCompleter(0, FieldCompleter{}).
-    ArgCompleter(1, ValueCompleter{}).
-    Done()
-
-// Usage: mytool -match name "John" -match age "25"
-```
-
-## Completion System
-
-### Built-in Completers
-
-#### FileCompleter
-
-```go
-FileCompleter{Pattern: "*.json"}      // Match pattern
-FileCompleter{DirsOnly: true}         // Only directories
-```
-
-#### StaticCompleter
-
-```go
-StaticCompleter{Options: []string{"foo", "bar", "baz"}}
-```
-
-#### ChainCompleter
-
-```go
-ChainCompleter{
-    Completers: []Completer{
-        &FileCompleter{Pattern: "*.json"},
-        &StaticCompleter{Options: []string{"-"}},
-    },
+&cf.FileCompleter{
+    Pattern:  "*.{json,yaml,xml}",  // Glob pattern
+    DirsOnly: false,                 // Only directories?
+    Hint:     "<FILE>",              // Shown when no matches
 }
 ```
 
-#### DynamicCompleter
-
+### StaticCompleter
 ```go
-DynamicCompleter{
-    Chooser: func(ctx CompletionContext) Completer {
-        // Choose completer based on context
-        if ctx.GlobalFlags["format"] == "json" {
-            return &FileCompleter{Pattern: "*.json"}
-        }
-        return &FileCompleter{Pattern: "*.yaml"}
-    },
+&cf.StaticCompleter{
+    Options: []string{"json", "yaml", "xml"},
 }
+```
+
+### NoCompleter
+```go
+cf.NoCompleter{Hint: "<VALUE>"}     // Shows hint
+cf.NoCompleter{}                     // Shows nothing
 ```
 
 ### Custom Completers
@@ -263,159 +209,116 @@ DynamicCompleter{
 Implement the `Completer` interface:
 
 ```go
-type Completer interface {
-    Complete(ctx CompletionContext) ([]string, error)
-}
-```
+type MyCompleter struct{}
 
-Example - Git branch completer:
+func (mc *MyCompleter) Complete(ctx cf.CompletionContext) ([]string, error) {
+    // ctx.Partial - what user typed
+    // ctx.FlagName - which flag
+    // ctx.ArgIndex - which argument
+    // ctx.PreviousArgs - previous arguments
 
-```go
-type GitBranchCompleter struct{}
-
-func (g GitBranchCompleter) Complete(ctx CompletionContext) ([]string, error) {
-    cmd := exec.Command("git", "branch", "--format=%(refname:short)")
-    output, err := cmd.Output()
-    if err != nil {
-        return []string{}, nil
-    }
-
-    branches := strings.Split(strings.TrimSpace(string(output)), "\n")
     var matches []string
-    for _, branch := range branches {
-        if strings.HasPrefix(branch, ctx.Partial) {
-            matches = append(matches, branch)
-        }
-    }
+    // Your logic here
     return matches, nil
 }
-
-// Use it
-Flag("-branch").
-    String().
-    Completer(GitBranchCompleter{}).
-    Done()
 ```
+
+## Documentation
+
+📖 **[Comprehensive Usage Guide](doc/USAGE.md)** - Complete API reference, examples, and best practices
+
+📋 **[Arg API Comparison](doc/ARG_API_COMPARISON.md)** - Index-based vs Fluent Arg() API
 
 ## Examples
 
 See the `examples/` directory:
 
-- **simple/** - Basic flag usage
-- **datatool/** - Multi-argument flags and clauses
+- **[simple/](examples/simple/)** - Basic flag usage with completion
+- **[datatool/](examples/datatool/)** - Advanced multi-clause query tool
+- **[datatool/main_fluent.go](examples/datatool/main_fluent.go)** - Using fluent Arg() API
 
 ### Running Examples
 
 ```bash
-cd examples/simple
+cd examples/datatool
 go build
-./simple -help
-./simple -completion-script
+./datatool -help
+eval "$(./datatool -completion-script)"
+./datatool -input sample_data.json -filter age gt 25
 ```
 
-## API Reference
+## Quick API Reference
 
-### CommandBuilder
+### Command Builder
 
 ```go
-NewCommand(name string) *CommandBuilder
-    .Version(version string)
-    .Description(desc string)
-    .Author(author string)
-    .Example(command, description string)
-    .Separators(seps ...string)          // Default: ["+", "-"]
-    .PrefixHandler(h PrefixHandler)
-    .Flag(names ...string) *FlagBuilder
-    .Handler(h ClauseHandlerFunc)
-    .Build() *Command
+cf.NewCommand("name").
+    Version("1.0.0").
+    Description("...").
+    Flag(...).
+    Handler(func(ctx *cf.Context) error { ... }).
+    Build()
 ```
 
-### FlagBuilder
+### Flag Builder
 
 ```go
-Flag(names ...string) *FlagBuilder
-    .Global()                            // Global scope
-    .Local()                             // Per-clause scope (default)
-    .Help(description string)
-    .Args(count int)                     // Number of arguments
-    .ArgName(index int, name string)
-    .ArgType(index int, t ArgType)
-    .ArgCompleter(index int, c Completer)
-    .Bool()                              // Shorthand: 0 args
-    .String()                            // Shorthand: 1 string arg
-    .Int()                               // Shorthand: 1 int arg
-    .Float()                             // Shorthand: 1 float arg
-    .StringSlice()                       // Accumulate multiple values
-    .Bind(ptr interface{})
-    .Required()
-    .Default(value interface{})
-    .Validate(fn ValidatorFunc)
-    .Completer(c Completer)              // For single-arg flags
-    .CompleterFunc(f CompletionFunc)
-    .FilePattern(pattern string)         // Creates FileCompleter
-    .Options(opts ...string)             // Creates StaticCompleter
-    .Hidden()                            // Hide from help/man
-    .Done() *CommandBuilder
+Flag("-name", "-n").
+    // Argument types
+    .Bool()                          // No arguments
+    .String()                        // Single string
+    .Int()                           // Single int
+    .Arg("NAME").Done()              // Multi-arg (fluent API)
+
+    // Scope
+    .Global()                        // Command-wide
+    .Local()                         // Per-clause
+
+    // Values
+    .Bind(&variable)                 // Bind to variable
+    .Default(value)                  // Default value
+    .Required()                      // Mark required
+    .Accumulate()                    // Multiple occurrences
+
+    // Completion
+    .FilePattern("*.json")           // File completer
+    .Options("a", "b", "c")          // Static options
+    .Completer(myCompleter)          // Custom completer
+
+    // Documentation
+    .Help("Description")             // Help text
+    .Done()                          // Finalize
 ```
 
-### Handler
+### Handler Context
 
 ```go
-func(ctx *Context) error
+func(ctx *cf.Context) error {
+    // Global flags
+    input := ctx.GlobalFlags["-input"].(string)
 
-type Context struct {
-    Command     *Command
-    Clauses     []Clause
-    GlobalFlags map[string]interface{}
-    RawArgs     []string
+    // Process clauses
+    for _, clause := range ctx.Clauses {
+        // Local flags per clause
+        if val, ok := clause.Flags["-filter"]; ok {
+            // Process flag value
+        }
+    }
+
+    return nil
 }
-
-type Clause struct {
-    Separator  string                    // "+" or "-"
-    Flags      map[string]interface{}
-    Positional []string
-}
 ```
-
-## Auto-Generated Features
-
-### Help Text
-
-```bash
-$ mytool -help
-```
-
-Shows:
-- Version and description
-- Usage line
-- All flags with descriptions, defaults, scope
-- Clause explanation
-- Examples
-
-### Man Page
-
-```bash
-$ mytool -man | man -l -
-```
-
-Traditional groff format with:
-- NAME, SYNOPSIS, DESCRIPTION sections
-- OPTIONS with formatting
-- EXAMPLES
-- AUTHOR
-
-### Bash Completion
-
-```bash
-$ mytool -completion-script
-```
-
-Generates universal bash completion script.
 
 ## License
 
-MIT
+MIT License - see [LICENSE](LICENSE) file
 
 ## Contributing
 
-Contributions welcome! Please open an issue or PR.
+Contributions welcome! Please open an issue or submit a pull request.
+
+## Links
+
+- [GitHub Repository](https://github.com/rosscartlidge/completionflags)
+- [Full Documentation](doc/USAGE.md)
+- [Examples](examples/)
