@@ -111,7 +111,15 @@ func (cmd *Command) analyzeCompletionContext(args []string, pos int) CompletionC
 	}
 
 	// Parse as much as we can to build context
-	partialCtx, _ := cmd.Parse(args[:pos])
+	// Clamp pos to valid range to avoid panic
+	parseUpTo := pos
+	if parseUpTo < 0 {
+		parseUpTo = 0
+	}
+	if parseUpTo > len(args) {
+		parseUpTo = len(args)
+	}
+	partialCtx, _ := cmd.Parse(args[:parseUpTo])
 	if partialCtx != nil {
 		ctx.ParsedClauses = partialCtx.Clauses
 		ctx.GlobalFlags = partialCtx.GlobalFlags
