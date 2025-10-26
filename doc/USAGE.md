@@ -437,35 +437,179 @@ type CompletionContext struct {
 
 ## Advanced Features
 
-### Accumulating Values
+### Understanding Multi-Argument Flag Values
 
-When a flag appears multiple times, accumulate values into a slice:
+When you define a flag with multiple arguments, the parsed value is stored as a **`map[string]interface{}`** where the keys are the argument names you defined with `ArgName()`.
+
+#### Single Occurrence
+
+For a flag defined as:
+```go
+Flag("-filter").
+    Args(3).
+    ArgName(0, "FIELD").
+    ArgName(1, "OPERATOR").
+    ArgName(2, "VALUE").
+    Done()
+```
+
+When user runs: `myapp -filter status eq active`
+
+The value is stored as:
+```go
+clause.Flags["-filter"] = map[string]interface{}{
+    "FIELD":    "status",
+    "OPERATOR": "eq",
+    "VALUE":    "active",
+}
+```
+
+Access it in your handler:
+```go
+if filterVal, ok := clause.Flags["-filter"]; ok {
+    filterMap := filterVal.(map[string]interface{})
+    field := filterMap["FIELD"].(string)
+    operator := filterMap["OPERATOR"].(string)
+    value := filterMap["VALUE"].(string)
+
+    fmt.Printf("Filter: %s %s %s\n", field, operator, value)
+}
+```
+
+#### Multiple Occurrences with Accumulate()
+
+When using `.Accumulate()`, multiple occurrences create a slice of maps:
 
 ```go
 Flag("-filter").
     Args(3).
-    Accumulate().  // Key method
+    ArgName(0, "FIELD").
+    ArgName(1, "OPERATOR").
+    ArgName(2, "VALUE").
+    Accumulate().  // Enable accumulation
     Local().
     Done()
 ```
 
-Usage:
-```bash
-myapp -filter status eq active -filter age gt 18
+User runs: `myapp -filter status eq active -filter age gt 18`
+
+The value is stored as:
+```go
+clause.Flags["-filter"] = []interface{}{
+    map[string]interface{}{
+        "FIELD":    "status",
+        "OPERATOR": "eq",
+        "VALUE":    "active",
+    },
+    map[string]interface{}{
+        "FIELD":    "age",
+        "OPERATOR": "gt",
+        "VALUE":    "18",
+    },
+}
 ```
 
-Accessing in handler:
+Access it in your handler:
 ```go
 if filterVal, ok := clause.Flags["-filter"]; ok {
-    filters := filterVal.([]interface{})  // Slice of filter values
+    filters := filterVal.([]interface{})  // Slice of maps
     for _, f := range filters {
         filterMap := f.(map[string]interface{})
-        field := filterMap["FIELD"]
-        operator := filterMap["OPERATOR"]
-        value := filterMap["VALUE"]
+        field := filterMap["FIELD"].(string)
+        operator := filterMap["OPERATOR"].(string)
+        value := filterMap["VALUE"].(string)
+
+        fmt.Printf("Filter: %s %s %s\n", field, operator, value)
     }
 }
 ```
+
+#### Value Types in the Map
+
+The map values are typed according to `ArgType()`:
+
+```go
+Flag("-range").
+    Args(3).
+    ArgName(0, "START").
+    ArgName(1, "END").
+    ArgName(2, "STEP").
+    ArgType(0, cf.ArgInt).
+    ArgType(1, cf.ArgInt).
+    ArgType(2, cf.ArgInt).
+    Done()
+```
+
+Results in:
+```go
+rangeMap := clause.Flags["-range"].(map[string]interface{})
+start := rangeMap["START"].(int)        // int, not string
+end := rangeMap["END"].(int)            // int, not string
+step := rangeMap["STEP"].(int)          // int, not string
+```
+
+#### Type Assertion Safety
+
+Always use type assertions safely:
+
+```go
+// Safe with ok check
+if filterVal, ok := clause.Flags["-filter"]; ok {
+    if filterMap, ok := filterVal.(map[string]interface{}); ok {
+        if field, ok := filterMap["FIELD"].(string); ok {
+            // Use field safely
+        }
+    }
+}
+
+// Or with accumulate
+if filterVal, ok := clause.Flags["-filter"]; ok {
+    if filters, ok := filterVal.([]interface{}); ok {
+        for _, f := range filters {
+            if filterMap, ok := f.(map[string]interface{}); ok {
+                // Process filterMap
+            }
+        }
+    }
+}
+```
+
+#### Complete Example
+
+```go
+Handler(func(ctx *cf.Context) error {
+    for i, clause := range ctx.Clauses {
+        fmt.Printf("Clause %d:\n", i+1)
+
+        // Handle accumulated multi-arg flag
+        if filterVal, ok := clause.Flags["-filter"]; ok {
+            // Check if it's accumulated (slice) or single
+            switch v := filterVal.(type) {
+            case []interface{}:
+                // Multiple filters
+                for _, f := range v {
+                    filterMap := f.(map[string]interface{})
+                    fmt.Printf("  Filter: %s %s %s\n",
+                        filterMap["FIELD"],
+                        filterMap["OPERATOR"],
+                        filterMap["VALUE"])
+                }
+            case map[string]interface{}:
+                // Single filter (without Accumulate)
+                fmt.Printf("  Filter: %s %s %s\n",
+                    v["FIELD"],
+                    v["OPERATOR"],
+                    v["VALUE"])
+            }
+        }
+    }
+    return nil
+})
+```
+
+### Accumulating Values
+
+See "Understanding Multi-Argument Flag Values" above for complete details on how accumulation works with multi-argument flags
 
 ### Custom Separators
 
