@@ -234,8 +234,7 @@ func (mc *MyCompleter) Complete(ctx cf.CompletionContext) ([]string, error) {
 See the `examples/` directory:
 
 - **[simple/](examples/simple/)** - Basic flag usage with completion
-- **[datatool/](examples/datatool/)** - Advanced multi-clause query tool
-- **[datatool/main_fluent.go](examples/datatool/main_fluent.go)** - Using fluent Arg() API
+- **[datatool/](examples/datatool/)** - Advanced multi-clause query tool with fluent Arg() API
 
 ### Running Examples
 

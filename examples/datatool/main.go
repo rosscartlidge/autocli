@@ -71,20 +71,19 @@ func main() {
 
 		// Local flags (per-clause)
 		Flag("-filter").
-			Args(3).
-			ArgName(0, "FIELD").
-			ArgName(1, "OPERATOR").
-			ArgName(2, "VALUE").
-			ArgType(0, cf.ArgString).
-			ArgType(1, cf.ArgString).
-			ArgType(2, cf.ArgString).
-			ArgCompleter(0, &cf.StaticCompleter{
-				Options: []string{"status", "age", "role", "name", "email"},
-			}).
-			ArgCompleter(1, &cf.StaticCompleter{
-				Options: []string{"eq", "ne", "gt", "lt", "gte", "lte", "contains"},
-			}).
-			ArgCompleter(2, cf.NoCompleter{Hint: "<VALUE>"}).
+			Arg("FIELD").
+				Completer(&cf.StaticCompleter{
+					Options: []string{"status", "age", "role", "name", "email"},
+				}).
+				Done().
+			Arg("OPERATOR").
+				Completer(&cf.StaticCompleter{
+					Options: []string{"eq", "ne", "gt", "lt", "gte", "lte", "contains"},
+				}).
+				Done().
+			Arg("VALUE").
+				Completer(cf.NoCompleter{Hint: "<VALUE>"}).
+				Done().
 			Accumulate().  // Mark to accumulate multiple values
 			Local().
 			Help("Add filter condition: field operator value (can be specified multiple times per clause)").

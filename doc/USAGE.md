@@ -229,7 +229,7 @@ Flag("-input", "-i")  // Multiple names/aliases
 .StringSlice()      // Accumulate multiple string values
 ```
 
-**Fluent Arg() API** (recommended for multi-argument flags):
+**Fluent Arg() API** (for multi-argument flags):
 ```go
 Flag("-filter").
     Arg("FIELD").
@@ -248,21 +248,13 @@ Flag("-filter").
     Done()
 ```
 
-**Benefits of Fluent Arg() API**:
+**Benefits**:
 - ✅ No index errors possible (arguments added in order)
 - ✅ Auto-counted
 - ✅ Clear visual grouping
 - ✅ Type defaults to `ArgString` (most common case)
 
-**Index-Based API** (backward compatible, use for programmatic config):
-```go
-.Args(count int)                    // Set number of arguments
-.ArgName(index int, name string)    // Set display name for argument
-.ArgType(index int, type ArgType)   // Set type (ArgString, ArgInt, ArgFloat)
-.ArgCompleter(index int, completer) // Set completer for specific argument
-```
-
-See [ARG_API_COMPARISON.md](ARG_API_COMPARISON.md) for detailed comparison and migration guide.
+> **Note**: An index-based API exists for programmatic/dynamic configuration (e.g., loops). See [ARG_API_COMPARISON.md](ARG_API_COMPARISON.md) for details.
 
 ### Value Handling
 
@@ -454,7 +446,7 @@ When you define a flag with multiple arguments, the parsed value is stored as a 
 
 #### Single Occurrence
 
-For a flag defined using the **fluent Arg() API**:
+For a flag defined with multiple arguments:
 ```go
 Flag("-filter").
     Arg("FIELD").
@@ -470,16 +462,6 @@ Flag("-filter").
     Arg("VALUE").
         Completer(cf.NoCompleter{Hint: "<VALUE>"}).
         Done().
-    Done()
-```
-
-Or using the **index-based API**:
-```go
-Flag("-filter").
-    Args(3).
-    ArgName(0, "FIELD").
-    ArgName(1, "OPERATOR").
-    ArgName(2, "VALUE").
     Done()
 ```
 
@@ -1138,11 +1120,9 @@ myapp -filter status eq <TAB>
 
 **Scope**: `.Global()`, `.Local()`
 
-**Arguments**: `.Bool()`, `.String()`, `.Int()`, `.Float()`, `.StringSlice()`, `.Args(int)`
+**Simple Arguments**: `.Bool()`, `.String()`, `.Int()`, `.Float()`, `.StringSlice()`
 
-**Fluent Arg() API (Recommended)**: `.Arg(name) *ArgBuilder`
-
-**Argument Details (Index-based)**: `.ArgName(idx, name)`, `.ArgType(idx, type)`, `.ArgCompleter(idx, completer)`
+**Multi-Argument API**: `.Arg(name) *ArgBuilder` - Returns ArgBuilder for fluent configuration
 
 **Values**: `.Bind(ptr)`, `.Default(val)`, `.Required()`, `.Accumulate()`
 
@@ -1156,13 +1136,15 @@ myapp -filter status eq <TAB>
 
 **Finalize**: `.Done() *CommandBuilder`
 
+> **Note**: Index-based methods (`.Args()`, `.ArgName()`, `.ArgType()`, `.ArgCompleter()`) exist for programmatic configuration. See [ARG_API_COMPARISON.md](ARG_API_COMPARISON.md).
+
 ### Arg Builder
 
-**Type**: `.Type(ArgType) *ArgBuilder`
+**Type**: `.Type(ArgType) *ArgBuilder` - Set argument type (default: ArgString)
 
-**Completion**: `.Completer(Completer) *ArgBuilder`
+**Completion**: `.Completer(Completer) *ArgBuilder` - Set completer for this argument
 
-**Finalize**: `.Done() *FlagBuilder`
+**Finalize**: `.Done() *FlagBuilder` - Return to flag builder
 
 ### Completers
 
