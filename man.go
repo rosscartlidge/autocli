@@ -118,8 +118,15 @@ func (cmd *Command) formatManFlag(spec *FlagSpec) string {
 		}
 	}
 
-	sb.WriteString(strings.Join(names, " , "))
-	sb.WriteString("\n")
+	// Each .BR/.B directive must start on its own line
+	for i, name := range names {
+		sb.WriteString(name)
+		if i < len(names)-1 {
+			sb.WriteString("\n.br\n")
+		} else {
+			sb.WriteString("\n")
+		}
+	}
 
 	// Description
 	if spec.Description != "" {
