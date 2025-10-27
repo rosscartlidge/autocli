@@ -23,12 +23,46 @@ func (cmd *Command) GenerateHelp() string {
 
 	// Usage
 	sb.WriteString("USAGE:\n")
-	sb.WriteString(fmt.Sprintf("    %s [OPTIONS]\n\n", cmd.name))
+	usageLine := fmt.Sprintf("    %s [OPTIONS]", cmd.name)
 
-	// Options
-	if len(cmd.flags) > 0 {
+	// Add positional arguments to usage line
+	positionals := cmd.positionalFlags()
+	for _, spec := range positionals {
+		usageLine += " "
+		argName := spec.Names[0]
+		if spec.IsVariadic {
+			if spec.Required {
+				usageLine += argName + "..."
+			} else {
+				usageLine += "[" + argName + "...]"
+			}
+		} else {
+			if spec.Required {
+				usageLine += argName
+			} else {
+				usageLine += "[" + argName + "]"
+			}
+		}
+	}
+	sb.WriteString(usageLine + "\n\n")
+
+	// Arguments (positional)
+	if len(positionals) > 0 {
+		sb.WriteString("ARGUMENTS:\n")
+		for _, spec := range positionals {
+			if spec.Hidden {
+				continue
+			}
+			sb.WriteString(cmd.formatPositional(spec))
+			sb.WriteString("\n")
+		}
+	}
+
+	// Options (named flags)
+	namedFlags := cmd.namedFlags()
+	if len(namedFlags) > 0 {
 		sb.WriteString("OPTIONS:\n")
-		for _, spec := range cmd.flags {
+		for _, spec := range namedFlags {
 			if spec.Hidden {
 				continue
 			}
@@ -59,6 +93,65 @@ func (cmd *Command) GenerateHelp() string {
 
 	// Footer
 	sb.WriteString(fmt.Sprintf("Use '%s -man' to view the full manual page.\n", cmd.name))
+
+	return sb.String()
+}
+
+// formatPositional formats a single positional argument for display in help text
+func (cmd *Command) formatPositional(spec *FlagSpec) string {
+	var sb strings.Builder
+
+	// Positional name
+	sb.WriteString("    ")
+	argName := spec.Names[0]
+	if spec.IsVariadic {
+		sb.WriteString(argName + "...")
+	} else {
+		sb.WriteString(argName)
+	}
+	sb.WriteString("\n")
+
+	// Description
+	if spec.Description != "" {
+		sb.WriteString(fmt.Sprintf("        %s\n", spec.Description))
+	}
+
+	// Type information
+	if len(spec.ArgTypes) > 0 && spec.ArgTypes[0] != ArgString {
+		var typeName string
+		switch spec.ArgTypes[0] {
+		case ArgInt:
+			typeName = "integer"
+		case ArgFloat:
+			typeName = "float"
+		case ArgBool:
+			typeName = "boolean"
+		case ArgDuration:
+			typeName = "duration"
+		case ArgTime:
+			typeName = "time"
+		default:
+			typeName = "string"
+		}
+		sb.WriteString(fmt.Sprintf("        Type: %s\n", typeName))
+	}
+
+	// Scope
+	if spec.Scope == ScopeGlobal {
+		sb.WriteString("        Scope: global\n")
+	} else {
+		sb.WriteString("        Scope: per-clause\n")
+	}
+
+	// Default value
+	if spec.Default != nil {
+		sb.WriteString(fmt.Sprintf("        Default: %v\n", spec.Default))
+	}
+
+	// Required
+	if spec.Required {
+		sb.WriteString("        Required\n")
+	}
 
 	return sb.String()
 }

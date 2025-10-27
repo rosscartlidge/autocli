@@ -1,5 +1,7 @@
 package completionflags
 
+import "fmt"
+
 // NewCommand creates a new command builder
 func NewCommand(name string) *CommandBuilder {
 	return &CommandBuilder{
@@ -87,6 +89,11 @@ func (cb *CommandBuilder) Build() *Command {
 	}
 	if cb.cmd.handler == nil {
 		panic("command handler is required")
+	}
+
+	// Validate positional arguments
+	if err := cb.cmd.validatePositionals(); err != nil {
+		panic(fmt.Sprintf("positional validation failed: %v", err))
 	}
 
 	return cb.cmd
@@ -261,6 +268,13 @@ func (fb *FlagBuilder) Hidden() *FlagBuilder {
 // Accumulate marks the flag to accumulate multiple values (for multi-arg or single-arg flags)
 func (fb *FlagBuilder) Accumulate() *FlagBuilder {
 	fb.spec.IsSlice = true
+	return fb
+}
+
+// Variadic marks the positional flag to consume all remaining arguments
+func (fb *FlagBuilder) Variadic() *FlagBuilder {
+	fb.spec.IsVariadic = true
+	fb.spec.IsSlice = true // Variadic implies slice
 	return fb
 }
 

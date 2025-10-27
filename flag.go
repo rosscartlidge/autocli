@@ -1,6 +1,10 @@
 package completionflags
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strings"
+)
 
 // Command represents a CLI command with flags, clauses, and completion support
 type Command struct {
@@ -30,6 +34,9 @@ type FlagSpec struct {
 	// Binding
 	Pointer     interface{}   // Where to store parsed value
 	IsSlice     bool          // Accumulate multiple values
+
+	// Positional arguments
+	IsVariadic  bool          // Consumes all remaining positional args (must be last)
 
 	// Validation and defaults
 	Required    bool
@@ -173,4 +180,90 @@ func (cmd *Command) getPrefixHandler() PrefixHandler {
 		return cmd.prefixHandler
 	}
 	return defaultPrefixHandler
+}
+
+// isPositional returns true if this flag spec is for a positional argument
+func (spec *FlagSpec) isPositional() bool {
+	if len(spec.Names) == 0 {
+		return false
+	}
+	// Positional if the first name doesn't start with - or +
+	name := spec.Names[0]
+	return !strings.HasPrefix(name, "-") && !strings.HasPrefix(name, "+")
+}
+
+// positionalFlags returns all positional flag specs in definition order
+func (cmd *Command) positionalFlags() []*FlagSpec {
+	var positionals []*FlagSpec
+	for _, spec := range cmd.flags {
+		if spec.isPositional() {
+			positionals = append(positionals, spec)
+		}
+	}
+	return positionals
+}
+
+// namedFlags returns all named flag specs (those starting with - or +)
+func (cmd *Command) namedFlags() []*FlagSpec {
+	var named []*FlagSpec
+	for _, spec := range cmd.flags {
+		if !spec.isPositional() {
+			named = append(named, spec)
+		}
+	}
+	return named
+}
+
+// validatePositionals validates positional argument constraints at build time
+func (cmd *Command) validatePositionals() error {
+	positionals := cmd.positionalFlags()
+	if len(positionals) == 0 {
+		return nil
+	}
+
+	// Track variadic count and position
+	variadicCount := 0
+	variadicIndex := -1
+
+	for i, spec := range positionals {
+		// Check for mutually exclusive Required and Default
+		if spec.Required && spec.Default != nil {
+			return fmt.Errorf("positional %q: cannot be both Required and have a Default", spec.Names[0])
+		}
+
+		// Track variadic
+		if spec.IsVariadic {
+			variadicCount++
+			variadicIndex = i
+		}
+	}
+
+	// Only one variadic allowed
+	if variadicCount > 1 {
+		return fmt.Errorf("only one positional argument can be Variadic")
+	}
+
+	// Variadic must be last
+	if variadicCount == 1 && variadicIndex != len(positionals)-1 {
+		return fmt.Errorf("Variadic positional %q must be last", positionals[variadicIndex].Names[0])
+	}
+
+	// Warn about optional before required (but don't fail)
+	// We check if any required positional comes after an optional one
+	foundOptional := false
+	for i, spec := range positionals {
+		if spec.IsVariadic {
+			break // Variadic is always last, skip it
+		}
+		if !spec.Required && spec.Default != nil {
+			foundOptional = true
+		}
+		if foundOptional && spec.Required {
+			// Print warning to stderr but don't fail
+			fmt.Fprintf(os.Stderr, "Warning: required positional %q at position %d comes after optional positionals\n",
+				spec.Names[0], i)
+		}
+	}
+
+	return nil
 }

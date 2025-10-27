@@ -108,6 +108,11 @@ func (cmd *Command) Parse(args []string) (*Context, error) {
 		return nil, err
 	}
 
+	// Match positional arguments to positional flag specs
+	if err := cmd.matchPositionals(ctx); err != nil {
+		return nil, err
+	}
+
 	// Apply defaults
 	cmd.applyDefaults(ctx)
 
@@ -453,6 +458,96 @@ func (cmd *Command) bindValues(ctx *Context) error {
 	}
 
 	return nil
+}
+
+// matchPositionals matches positional arguments to positional flag specs
+func (cmd *Command) matchPositionals(ctx *Context) error {
+	positionalSpecs := cmd.positionalFlags()
+	if len(positionalSpecs) == 0 {
+		return nil // No positional specs defined
+	}
+
+	// Separate global and local positionals
+	var globalPositionals []*FlagSpec
+	var localPositionals []*FlagSpec
+	for _, spec := range positionalSpecs {
+		if spec.Scope == ScopeGlobal {
+			globalPositionals = append(globalPositionals, spec)
+		} else {
+			localPositionals = append(localPositionals, spec)
+		}
+	}
+
+	// Match global positionals once (from first clause's positional args)
+	if len(globalPositionals) > 0 && len(ctx.Clauses) > 0 {
+		// Collect all positional args from the first clause
+		positionalArgs := ctx.Clauses[0].Positional
+		consumed, err := cmd.matchPositionalsToSpecs(globalPositionals, positionalArgs, ctx.GlobalFlags)
+		if err != nil {
+			return err
+		}
+		// Remove consumed args from first clause
+		ctx.Clauses[0].Positional = positionalArgs[consumed:]
+	}
+
+	// Match local positionals in each clause
+	if len(localPositionals) > 0 {
+		for i := range ctx.Clauses {
+			positionalArgs := ctx.Clauses[i].Positional
+			_, err := cmd.matchPositionalsToSpecs(localPositionals, positionalArgs, ctx.Clauses[i].Flags)
+			if err != nil {
+				return fmt.Errorf("clause %d: %w", i, err)
+			}
+			// Note: we keep remaining positional args in clause for backward compatibility
+		}
+	}
+
+	return nil
+}
+
+// matchPositionalsToSpecs matches positional arguments to specs and stores in target map
+func (cmd *Command) matchPositionalsToSpecs(specs []*FlagSpec, args []string, target map[string]interface{}) (int, error) {
+	argIndex := 0
+
+	for _, spec := range specs {
+		if spec.IsVariadic {
+			// Variadic consumes all remaining args
+			if argIndex < len(args) {
+				remaining := args[argIndex:]
+				values := make([]interface{}, len(remaining))
+				for i, arg := range remaining {
+					val, err := parseArgValue(arg, spec.ArgTypes[0], spec, nil)
+					if err != nil {
+						return argIndex, ParseError{
+							Flag:    spec.Names[0],
+							Message: fmt.Sprintf("invalid value %q: %v", arg, err),
+						}
+					}
+					values[i] = val
+				}
+				target[spec.Names[0]] = values
+				argIndex = len(args) // Consumed all
+			}
+			// If no args left, variadic gets empty slice (handled by defaults)
+			break
+		}
+
+		// Non-variadic: consume one arg
+		if argIndex < len(args) {
+			val, err := parseArgValue(args[argIndex], spec.ArgTypes[0], spec, nil)
+			if err != nil {
+				return argIndex, ParseError{
+					Flag:    spec.Names[0],
+					Message: fmt.Sprintf("invalid value %q: %v", args[argIndex], err),
+				}
+			}
+			target[spec.Names[0]] = val
+			argIndex++
+		}
+		// If no arg available, leave unset (will use default or fail validation if required)
+	}
+
+	return argIndex, nil
 }
 
 // setValue sets a reflect.Value from an interface{} value
