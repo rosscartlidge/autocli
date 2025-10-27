@@ -102,7 +102,7 @@ func main() {
 			).
 			TimeZoneFromFlag("-timezone").
 			Help("Start time for filtering (format: 2006-01-02 15:04:05 or RFC3339)").
-			Completer(cf.NoCompleter{Hint: "<YYYY-MM-DD HH:MM:SS>"}).
+			Completer(cf.NoCompleter{Hint: "<YYYY-MM-DD_HH:MM:SS>"}).
 			Done().
 
 		// Local flags (per-clause)
