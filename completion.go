@@ -263,3 +263,37 @@ func matchesBracePattern(filename, pattern string) bool {
 
 	return false
 }
+
+// DurationCompleter suggests common duration values
+type DurationCompleter struct {
+	Suggestions []string // Custom suggestions (optional)
+}
+
+// Complete implements Completer interface
+func (dc *DurationCompleter) Complete(ctx CompletionContext) ([]string, error) {
+	suggestions := dc.Suggestions
+	if len(suggestions) == 0 {
+		// Default common durations
+		suggestions = []string{
+			"1s", "5s", "10s", "30s",
+			"1m", "5m", "10m", "30m",
+			"1h", "2h", "6h", "12h", "24h",
+		}
+	}
+
+	var matches []string
+	partial := strings.ToLower(ctx.Partial)
+
+	for _, suggestion := range suggestions {
+		if strings.HasPrefix(strings.ToLower(suggestion), partial) {
+			matches = append(matches, suggestion)
+		}
+	}
+
+	// If no matches and user has typed something, show hint
+	if len(matches) == 0 && ctx.Partial != "" {
+		return []string{"<DURATION>"}, nil
+	}
+
+	return matches, nil
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	cf "github.com/rosscartlidge/completionflags"
 )
@@ -12,6 +13,9 @@ type Config struct {
 	OutputFile string
 	Format     string
 	Verbose    bool
+	Timeout    time.Duration
+	Timezone   string
+	StartTime  time.Time
 }
 
 func main() {
@@ -69,6 +73,38 @@ func main() {
 			Help("Enable verbose output").
 			Done().
 
+		Flag("-timeout", "-t").
+			Bind(&config.Timeout).
+			Duration().
+			Global().
+			Default(time.Duration(30 * time.Second)).
+			Help("Timeout for processing").
+			Completer(&cf.DurationCompleter{}).
+			Done().
+
+		Flag("-timezone", "-tz").
+			Bind(&config.Timezone).
+			String().
+			Global().
+			Default("Local").
+			Options("Local", "UTC", "Australia/Sydney", "America/New_York", "Europe/London").
+			Help("Timezone for time parsing").
+			Done().
+
+		Flag("-start-time", "-st").
+			Bind(&config.StartTime).
+			Time().
+			Global().
+			TimeFormats(
+				"2006-01-02 15:04:05",
+				"2006-01-02",
+				time.RFC3339,
+			).
+			TimeZoneFromFlag("-timezone").
+			Help("Start time for filtering (format: 2006-01-02 15:04:05 or RFC3339)").
+			Completer(cf.NoCompleter{Hint: "<YYYY-MM-DD HH:MM:SS>"}).
+			Done().
+
 		// Local flags (per-clause)
 		Flag("-filter").
 			Arg("FIELD").
@@ -106,6 +142,11 @@ func main() {
 					fmt.Printf("  Output: stdout\n")
 				}
 				fmt.Printf("  Format: %s\n", ctx.GlobalFlags["-format"])
+				fmt.Printf("  Timeout: %v\n", config.Timeout)
+				fmt.Printf("  Timezone: %s\n", config.Timezone)
+				if !config.StartTime.IsZero() {
+					fmt.Printf("  Start Time: %s\n", config.StartTime.Format(time.RFC3339))
+				}
 				fmt.Printf("  Clauses: %d\n\n", len(ctx.Clauses))
 			}
 

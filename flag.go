@@ -36,6 +36,11 @@ type FlagSpec struct {
 	Default     interface{}
 	Validator   ValidatorFunc
 
+	// Time parsing (for ArgTime type)
+	TimeFormats      []string // Multiple formats to try in order (uses time.ParseInLocation)
+	TimeZone         string   // IANA timezone name or "Local" for formats without TZ info
+	TimeZoneFromFlag string   // Flag name to get timezone from (must be Global flag, e.g., "-timezone")
+
 	// Display
 	Hidden      bool          // Hide from help/man (for internal flags)
 }
@@ -48,6 +53,8 @@ const (
 	ArgInt
 	ArgFloat
 	ArgBool
+	ArgDuration // time.Duration parsed with time.ParseDuration
+	ArgTime     // time.Time parsed with time.ParseInLocation
 )
 
 // Scope determines if flag is global or per-clause

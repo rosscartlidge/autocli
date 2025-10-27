@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Execute parses arguments and runs the handler
@@ -154,7 +155,7 @@ func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, global map
 	// Parse arguments
 	if spec.ArgCount == 1 {
 		// Single argument
-		value, err := parseArgValue(args[pos+1], spec.ArgTypes[0])
+		value, err := parseArgValue(args[pos+1], spec.ArgTypes[0], spec, global)
 		if err != nil {
 			return 0, ParseError{
 				Flag:    flagArg,
@@ -184,7 +185,7 @@ func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, global map
 	// Multi-argument flag
 	argMap := make(map[string]interface{})
 	for i := 0; i < spec.ArgCount; i++ {
-		value, err := parseArgValue(args[pos+1+i], spec.ArgTypes[i])
+		value, err := parseArgValue(args[pos+1+i], spec.ArgTypes[i], spec, global)
 		if err != nil {
 			return 0, ParseError{
 				Flag:    flagArg,
@@ -214,7 +215,7 @@ func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, global map
 }
 
 // parseArgValue converts a string to the appropriate type
-func parseArgValue(value string, argType ArgType) (interface{}, error) {
+func parseArgValue(value string, argType ArgType, spec *FlagSpec, globalFlags map[string]interface{}) (interface{}, error) {
 	switch argType {
 	case ArgString:
 		return value, nil
@@ -224,9 +225,62 @@ func parseArgValue(value string, argType ArgType) (interface{}, error) {
 		return strconv.ParseFloat(value, 64)
 	case ArgBool:
 		return strconv.ParseBool(value)
+	case ArgDuration:
+		return time.ParseDuration(value)
+	case ArgTime:
+		return parseTimeValue(value, spec, globalFlags)
 	default:
 		return value, nil
 	}
+}
+
+// parseTimeValue parses a time string using the spec's time configuration
+func parseTimeValue(value string, spec *FlagSpec, globalFlags map[string]interface{}) (time.Time, error) {
+	formats := spec.TimeFormats
+	if len(formats) == 0 {
+		formats = []string{time.RFC3339} // Default format
+	}
+
+	// Determine timezone
+	timezone := spec.TimeZone
+
+	// Try to resolve timezone from TimeZoneFromFlag
+	if spec.TimeZoneFromFlag != "" {
+		// Look up the timezone from globalFlags
+		if tzValue, ok := globalFlags[spec.TimeZoneFromFlag]; ok {
+			if tzStr, ok := tzValue.(string); ok {
+				timezone = tzStr
+			}
+		}
+	}
+
+	if timezone == "" {
+		timezone = "Local"
+	}
+
+	// Load location
+	var loc *time.Location
+	if timezone == "Local" {
+		loc = time.Local
+	} else {
+		var err error
+		loc, err = time.LoadLocation(timezone)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid timezone %q: %w", timezone, err)
+		}
+	}
+
+	// Try each format
+	var lastErr error
+	for _, format := range formats {
+		t, err := time.ParseInLocation(format, value, loc)
+		if err == nil {
+			return t, nil // Success!
+		}
+		lastErr = err
+	}
+
+	return time.Time{}, fmt.Errorf("could not parse %q with any format: %w", value, lastErr)
 }
 
 // applyDefaults applies default values to flags that weren't specified
@@ -375,6 +429,13 @@ func setValue(target reflect.Value, value interface{}) error {
 			return nil
 		}
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		// Special case: time.Duration is an int64
+		if target.Type() == reflect.TypeOf(time.Duration(0)) {
+			if v, ok := value.(time.Duration); ok {
+				target.Set(reflect.ValueOf(v))
+				return nil
+			}
+		}
 		if v, ok := value.(int); ok {
 			target.SetInt(int64(v))
 			return nil
@@ -388,6 +449,14 @@ func setValue(target reflect.Value, value interface{}) error {
 		if v, ok := value.(bool); ok {
 			target.SetBool(v)
 			return nil
+		}
+	case reflect.Struct:
+		// Special case: time.Time
+		if target.Type() == reflect.TypeOf(time.Time{}) {
+			if v, ok := value.(time.Time); ok {
+				target.Set(reflect.ValueOf(v))
+				return nil
+			}
 		}
 	case reflect.Slice:
 		// Handle slice types

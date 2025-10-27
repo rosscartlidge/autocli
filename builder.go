@@ -195,6 +195,16 @@ func (fb *FlagBuilder) StringSlice() *FlagBuilder {
 	return fb.Args(1).ArgType(0, ArgString).ArgName(0, "VALUE")
 }
 
+// Duration is a shorthand for a single duration argument
+func (fb *FlagBuilder) Duration() *FlagBuilder {
+	return fb.Args(1).ArgType(0, ArgDuration).ArgName(0, "DURATION")
+}
+
+// Time is a shorthand for a single time argument
+func (fb *FlagBuilder) Time() *FlagBuilder {
+	return fb.Args(1).ArgType(0, ArgTime).ArgName(0, "TIME")
+}
+
 // Bind binds the flag to a variable
 func (fb *FlagBuilder) Bind(ptr interface{}) *FlagBuilder {
 	fb.spec.Pointer = ptr
@@ -254,6 +264,24 @@ func (fb *FlagBuilder) Accumulate() *FlagBuilder {
 	return fb
 }
 
+// TimeFormats sets time formats to try when parsing ArgTime (can be called multiple times)
+func (fb *FlagBuilder) TimeFormats(layouts ...string) *FlagBuilder {
+	fb.spec.TimeFormats = append(fb.spec.TimeFormats, layouts...)
+	return fb
+}
+
+// TimeZone sets the default timezone for ArgTime parsing
+func (fb *FlagBuilder) TimeZone(tz string) *FlagBuilder {
+	fb.spec.TimeZone = tz
+	return fb
+}
+
+// TimeZoneFromFlag sets ArgTime to use timezone from another flag (must be Global flag)
+func (fb *FlagBuilder) TimeZoneFromFlag(flagName string) *FlagBuilder {
+	fb.spec.TimeZoneFromFlag = flagName
+	return fb
+}
+
 // Arg starts defining a new argument (fluent API alternative to Args() + ArgName/ArgType/ArgCompleter)
 func (fb *FlagBuilder) Arg(name string) *ArgBuilder {
 	// On first call, clear the default single-arg setup
@@ -291,6 +319,24 @@ func (ab *ArgBuilder) Completer(c Completer) *ArgBuilder {
 	if ab.argIndex >= 0 && ab.argIndex < len(ab.fb.spec.ArgCompleters) {
 		ab.fb.spec.ArgCompleters[ab.argIndex] = c
 	}
+	return ab
+}
+
+// TimeFormats sets time formats for this ArgTime argument (can be called multiple times)
+func (ab *ArgBuilder) TimeFormats(layouts ...string) *ArgBuilder {
+	ab.fb.spec.TimeFormats = append(ab.fb.spec.TimeFormats, layouts...)
+	return ab
+}
+
+// TimeZone sets the default timezone for this ArgTime argument
+func (ab *ArgBuilder) TimeZone(tz string) *ArgBuilder {
+	ab.fb.spec.TimeZone = tz
+	return ab
+}
+
+// TimeZoneFromFlag sets this ArgTime to use timezone from another flag (must be Global flag)
+func (ab *ArgBuilder) TimeZoneFromFlag(flagName string) *ArgBuilder {
+	ab.fb.spec.TimeZoneFromFlag = flagName
 	return ab
 }
 
