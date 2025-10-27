@@ -53,10 +53,11 @@ func (cmd *Command) Execute(args []string) error {
 // Parse breaks arguments into clauses
 func (cmd *Command) Parse(args []string) (*Context, error) {
 	ctx := &Context{
-		Command:     cmd,
-		Clauses:     []Clause{},
-		GlobalFlags: make(map[string]interface{}),
-		RawArgs:     args,
+		Command:        cmd,
+		Clauses:        []Clause{},
+		GlobalFlags:    make(map[string]interface{}),
+		RawArgs:        args,
+		deferredValues: make(map[string]*deferredValue),
 	}
 
 	currentClause := Clause{
@@ -86,7 +87,7 @@ func (cmd *Command) Parse(args []string) (*Context, error) {
 
 		// Check if this is a flag (starts with - or +)
 		if strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "+") {
-			consumed, err := cmd.parseFlag(args, i, &currentClause, ctx.GlobalFlags)
+			consumed, err := cmd.parseFlag(args, i, &currentClause, ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -102,6 +103,11 @@ func (cmd *Command) Parse(args []string) (*Context, error) {
 	// Save final clause
 	ctx.Clauses = append(ctx.Clauses, currentClause)
 
+	// Resolve deferred values now that all flags are parsed
+	if err := cmd.resolveDeferredValues(ctx); err != nil {
+		return nil, err
+	}
+
 	// Apply defaults
 	cmd.applyDefaults(ctx)
 
@@ -109,7 +115,7 @@ func (cmd *Command) Parse(args []string) (*Context, error) {
 }
 
 // parseFlag handles both -flag and +flag
-func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, global map[string]interface{}) (int, error) {
+func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, ctx *Context) (int, error) {
 	flagArg := args[pos]
 	hasPlus := strings.HasPrefix(flagArg, "+")
 
@@ -130,7 +136,7 @@ func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, global map
 	// Determine target storage based on scope
 	var target map[string]interface{}
 	if spec.Scope == ScopeGlobal {
-		target = global
+		target = ctx.GlobalFlags
 	} else {
 		target = clause.Flags
 	}
@@ -154,8 +160,24 @@ func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, global map
 
 	// Parse arguments
 	if spec.ArgCount == 1 {
-		// Single argument
-		value, err := parseArgValue(args[pos+1], spec.ArgTypes[0], spec, global)
+		// Check if we need deferred parsing
+		needsDeferred := spec.ArgTypes[0] == ArgTime && spec.TimeZoneFromFlag != ""
+
+		if needsDeferred {
+			// Store for deferred parsing
+			clauseIdx := len(ctx.Clauses) // Current clause index
+			ctx.deferredValues[spec.Names[0]] = &deferredValue{
+				rawString:   args[pos+1],
+				spec:        spec,
+				isGlobal:    spec.Scope == ScopeGlobal,
+				clauseIndex: clauseIdx,
+			}
+			// Don't parse yet, just consume the argument
+			return 1 + spec.ArgCount, nil
+		}
+
+		// Single argument - parse immediately
+		value, err := parseArgValue(args[pos+1], spec.ArgTypes[0], spec, ctx.GlobalFlags)
 		if err != nil {
 			return 0, ParseError{
 				Flag:    flagArg,
@@ -185,7 +207,7 @@ func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, global map
 	// Multi-argument flag
 	argMap := make(map[string]interface{})
 	for i := 0; i < spec.ArgCount; i++ {
-		value, err := parseArgValue(args[pos+1+i], spec.ArgTypes[i], spec, global)
+		value, err := parseArgValue(args[pos+1+i], spec.ArgTypes[i], spec, ctx.GlobalFlags)
 		if err != nil {
 			return 0, ParseError{
 				Flag:    flagArg,
@@ -281,6 +303,32 @@ func parseTimeValue(value string, spec *FlagSpec, globalFlags map[string]interfa
 	}
 
 	return time.Time{}, fmt.Errorf("could not parse %q with any format: %w", value, lastErr)
+}
+
+// resolveDeferredValues parses values that were deferred because they depend on other flags
+func (cmd *Command) resolveDeferredValues(ctx *Context) error {
+	for flagName, deferred := range ctx.deferredValues {
+		// Now that all flags are parsed, we can resolve dependencies
+		value, err := parseArgValue(deferred.rawString, deferred.spec.ArgTypes[0],
+			deferred.spec, ctx.GlobalFlags)
+		if err != nil {
+			return ParseError{
+				Flag:    flagName,
+				Message: fmt.Sprintf("deferred parsing failed: %v", err),
+			}
+		}
+
+		// Store in correct location
+		if deferred.isGlobal {
+			ctx.GlobalFlags[flagName] = value
+		} else {
+			// For local flags, store in the appropriate clause
+			if deferred.clauseIndex < len(ctx.Clauses) {
+				ctx.Clauses[deferred.clauseIndex].Flags[flagName] = value
+			}
+		}
+	}
+	return nil
 }
 
 // applyDefaults applies default values to flags that weren't specified

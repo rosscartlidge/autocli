@@ -74,10 +74,19 @@ type Clause struct {
 
 // Context is passed to handler with all parsed clauses
 type Context struct {
-	Command     *Command
-	Clauses     []Clause                  // All parsed clauses
-	GlobalFlags map[string]interface{}    // Flags marked as global (apply to all clauses)
-	RawArgs     []string                  // Original arguments
+	Command        *Command
+	Clauses        []Clause                  // All parsed clauses
+	GlobalFlags    map[string]interface{}    // Flags marked as global (apply to all clauses)
+	RawArgs        []string                  // Original arguments
+	deferredValues map[string]*deferredValue // Values that need re-parsing after all flags known
+}
+
+// deferredValue tracks a value that needs re-parsing after all flags are available
+type deferredValue struct {
+	rawString   string
+	spec        *FlagSpec
+	isGlobal    bool
+	clauseIndex int // For local flags, which clause
 }
 
 // ClauseHandlerFunc processes all clauses
