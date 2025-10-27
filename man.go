@@ -98,34 +98,29 @@ func (cmd *Command) formatManFlag(spec *FlagSpec) string {
 
 	sb.WriteString(".TP\n")
 
-	// Flag names with arguments
-	names := make([]string, len(spec.Names))
+	// Join all flag names with |
+	escapedNames := make([]string, len(spec.Names))
 	for i, name := range spec.Names {
-		if spec.ArgCount > 0 {
-			args := make([]string, spec.ArgCount)
-			for j := 0; j < spec.ArgCount; j++ {
-				argName := "ARG"
-				if j < len(spec.ArgNames) {
-					argName = spec.ArgNames[j]
-				}
-				args[j] = fmt.Sprintf("\\fI%s\\fR", escapeGroff(argName))
-			}
-			names[i] = fmt.Sprintf(".BR %s \" \" %s",
-				escapeGroff(name),
-				strings.Join(args, " \" \" "))
-		} else {
-			names[i] = fmt.Sprintf(".B %s", escapeGroff(name))
-		}
+		escapedNames[i] = escapeGroff(name)
 	}
+	flagNames := strings.Join(escapedNames, "|")
 
-	// Each .BR/.B directive must start on its own line
-	for i, name := range names {
-		sb.WriteString(name)
-		if i < len(names)-1 {
-			sb.WriteString("\n.br\n")
-		} else {
-			sb.WriteString("\n")
+	if spec.ArgCount > 0 {
+		// Flags with arguments: .BI \-flag1|\-flag2 " ARG1 ARG2"
+		args := make([]string, spec.ArgCount)
+		for j := 0; j < spec.ArgCount; j++ {
+			argName := "ARG"
+			if j < len(spec.ArgNames) {
+				argName = spec.ArgNames[j]
+			}
+			args[j] = argName
 		}
+		sb.WriteString(fmt.Sprintf(".BI %s \" %s\"\n",
+			flagNames,
+			strings.Join(args, " ")))
+	} else {
+		// Boolean flags: .B \-flag1|\-flag2
+		sb.WriteString(fmt.Sprintf(".B %s\n", flagNames))
 	}
 
 	// Description
