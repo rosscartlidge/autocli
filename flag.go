@@ -86,6 +86,7 @@ type Context struct {
 	Subcommand     string                    // Name of subcommand being executed (empty for root)
 	Clauses        []Clause                  // All parsed clauses
 	GlobalFlags    map[string]interface{}    // Flags marked as global (apply to all clauses)
+	RemainingArgs  []string                  // Arguments after -- (everything after -- is literal)
 	RawArgs        []string                  // Original arguments
 	deferredValues map[string]*deferredValue // Values that need re-parsing after all flags known
 }

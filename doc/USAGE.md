@@ -153,6 +153,41 @@ cmd.PrefixHandler(func(flagName string, hasPlus bool) interface{} {
 })
 ```
 
+### End of Flags Marker (`--`)
+
+Following Unix convention, `--` stops flag parsing. Everything after `--` is treated as literal arguments, even if they look like flags:
+
+```bash
+# All args after -- go to ctx.RemainingArgs
+myapp -verbose -- arg1 arg2 arg3
+
+# Even flag-like strings are literal
+myapp -verbose -- -not-a-flag --also-not-a-flag
+
+# Works with clauses - terminates clause parsing
+myapp -filter a eq 1 + -filter b eq 2 -- extra1 extra2
+
+# Works with subcommands
+myapp query -filter name eq Alice -- file1.txt file2.txt
+```
+
+Access remaining args in your handler:
+
+```go
+Handler(func(ctx *cf.Context) error {
+    if len(ctx.RemainingArgs) > 0 {
+        fmt.Println("Extra arguments:", ctx.RemainingArgs)
+        // ["arg1", "arg2", "arg3"]
+    }
+    return nil
+})
+```
+
+**Scope**: `--` works at both root command and subcommand level:
+- Before subcommand: Args go to root context
+- After subcommand: Args go to subcommand context
+- After clauses: Terminates all clause parsing, args go to current context
+
 ## Building Commands
 
 ### Command Builder Methods
@@ -413,6 +448,7 @@ type Context struct {
     Subcommand     string                    // Name of the subcommand
     Clauses        []Clause                  // Parsed clauses
     GlobalFlags    map[string]interface{}    // All global flags
+    RemainingArgs  []string                  // Arguments after -- (literal)
     ExecutionError error
 }
 ```
@@ -440,6 +476,11 @@ Handler(func(ctx *cf.Context) error {
                 fmt.Printf("  Filter: %s %s %s\n", args[0], args[1], args[2])
             }
         }
+    }
+
+    // Access remaining arguments (after --)
+    if len(ctx.RemainingArgs) > 0 {
+        fmt.Printf("Extra files to process: %v\n", ctx.RemainingArgs)
     }
 
     return nil
@@ -1814,8 +1855,11 @@ myapp -filter status eq <TAB>
 
 ```go
 type Context struct {
-    Clauses     []Clause
-    GlobalFlags map[string]interface{}
+    Command       *Command
+    Subcommand    string                    // Name of subcommand (empty for root)
+    Clauses       []Clause
+    GlobalFlags   map[string]interface{}
+    RemainingArgs []string                  // Arguments after -- (literal)
 }
 
 type Clause struct {

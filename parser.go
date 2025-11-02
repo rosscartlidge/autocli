@@ -122,6 +122,16 @@ func (cmd *Command) Parse(args []string) (*Context, error) {
 	for i < len(args) {
 		arg := args[i]
 
+		// Check for -- (end of flag parsing)
+		if arg == "--" {
+			// Everything after -- goes to RemainingArgs
+			if i+1 < len(args) {
+				ctx.RemainingArgs = args[i+1:]
+			}
+			// Stop parsing
+			break
+		}
+
 		// Check if this is a clause separator
 		if cmd.isSeparator(arg) {
 			// Save current clause
