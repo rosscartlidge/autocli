@@ -8,11 +8,12 @@ A powerful, general-purpose Go package for building command-line applications wi
 2. [Quick Start](#quick-start)
 3. [Core Concepts](#core-concepts)
 4. [Building Commands](#building-commands)
-5. [Flag Configuration](#flag-configuration)
-6. [Completion System](#completion-system)
-7. [Advanced Features](#advanced-features)
-8. [Complete Examples](#complete-examples)
-9. [Best Practices](#best-practices)
+5. [Subcommands](#subcommands)
+6. [Flag Configuration](#flag-configuration)
+7. [Completion System](#completion-system)
+8. [Advanced Features](#advanced-features)
+9. [Complete Examples](#complete-examples)
+10. [Best Practices](#best-practices)
 
 ## Overview
 
@@ -20,6 +21,7 @@ A powerful, general-purpose Go package for building command-line applications wi
 
 - **Fluent Builder API**: Chain methods to configure commands and flags elegantly
 - **Fluent Arg() API**: Safe, index-free multi-argument configuration (recommended!)
+- **Subcommands**: Build distributed CLI tools like git, docker, kubectl
 - **Clause-based Grouping**: Group flags into clauses separated by `+` or `-` for Boolean logic
 - **Intelligent Completion**: Context-aware bash completion with pluggable completers
 - **Multi-argument Flags**: Flags can take multiple arguments with per-argument completion
@@ -199,6 +201,659 @@ Handler(func(ctx *cf.Context) error {
     return nil
 })
 ```
+
+## Subcommands
+
+Subcommands allow you to build distributed command-line tools where the first argument determines which command to execute, similar to `git`, `docker`, or `kubectl`.
+
+### Pattern
+
+```bash
+command [root-global-flags] subcommand [subcommand-flags] [clauses]
+```
+
+### Key Features
+
+- **Full clause support** - Use `+` and `-` separators for Boolean logic in subcommands
+- **Three-level flag scoping** - Root global, subcommand global, and per-clause local flags
+- **Flexible flag placement** - Root globals work before or after the subcommand name
+- **Shell completion** - Context-aware completion for subcommands, flags, and arguments
+- **Auto-generated help** - Comprehensive help for root and each subcommand
+
+### Quick Example
+
+```go
+cmd := cf.NewCommand("myapp").
+    Version("1.0.0").
+    Description("My application with subcommands").
+
+    // Root global flag (available to all subcommands)
+    Flag("-verbose", "-v").
+        Description("Enable verbose output").
+        Bool().
+        Global().
+        Done().
+
+    // Query subcommand
+    Subcommand("query").
+        Description("Query data with filters").
+
+        Flag("-output", "-o").
+            Description("Output file").
+            Arg("FILE").Done().
+            String().
+            Global().
+            Done().
+
+        Flag("-filter").
+            Description("Filter condition").
+            Arg("COLUMN").Done().
+            Arg("OPERATOR").Values("eq", "ne", "gt", "lt").Done().
+            Arg("VALUE").Done().
+            Accumulate().
+            Local().
+            Done().
+
+        Handler(func(ctx *cf.Context) error {
+            verbose := ctx.GlobalFlags["-verbose"].(bool)
+            output := ctx.GlobalFlags["-output"].(string)
+
+            fmt.Printf("Query command (verbose=%v, output=%s)\n", verbose, output)
+
+            for _, clause := range ctx.Clauses {
+                filters := clause.Flags["-filter"].([]interface{})
+                for _, f := range filters {
+                    args := f.([]string)
+                    fmt.Printf("  Filter: %s %s %s\n", args[0], args[1], args[2])
+                }
+            }
+            return nil
+        }).
+        Done().
+
+    // Import subcommand
+    Subcommand("import").
+        Description("Import data from files").
+
+        Positional("FILE").
+            Description("File to import").
+            Required().
+            Done().
+
+        Handler(func(ctx *cf.Context) error {
+            file := ctx.GlobalFlags["FILE"].(string)
+            fmt.Printf("Importing from: %s\n", file)
+            return nil
+        }).
+        Done().
+
+    Build()
+```
+
+### Example Usage
+
+```bash
+# Show available subcommands
+$ myapp -help
+
+# Query with filters
+$ myapp query -filter name eq "Alice" -filter age gt 30
+
+# Use root global flag before subcommand
+$ myapp -verbose query -output results.txt -filter status eq active
+
+# Use root global flag after subcommand
+$ myapp query -verbose -filter status eq active
+
+# Multiple clauses (OR logic)
+$ myapp query -filter status eq active + -filter priority eq high
+
+# Import subcommand
+$ myapp import data.csv
+```
+
+### Three-Level Flag Scoping
+
+Flags can be scoped at three levels:
+
+#### 1. Root Global Flags
+
+Available to all subcommands, parsed before routing. Define on root command with `.Global()`:
+
+```go
+cmd := cf.NewCommand("myapp").
+    Flag("-verbose", "-v").
+        Description("Enable verbose output").
+        Bool().
+        Global().  // Available to all subcommands
+        Done()
+```
+
+**Usage:**
+```bash
+# Before subcommand
+$ myapp -verbose query -filter ...
+
+# After subcommand
+$ myapp query -verbose -filter ...
+
+# Both work identically!
+```
+
+#### 2. Subcommand Global Flags
+
+Apply across all clauses but only within that subcommand:
+
+```go
+Subcommand("query").
+    Flag("-output", "-o").
+        Description("Output file").
+        Arg("FILE").Done().
+        String().
+        Global().  // Global within this subcommand
+        Done()
+```
+
+**Usage:**
+```bash
+# Applied to all clauses
+$ myapp query -output results.txt -filter a eq 1 + -filter b eq 2
+#              ^-- applies to both clauses
+```
+
+#### 3. Subcommand Local Flags
+
+Clause-specific within a subcommand:
+
+```go
+Subcommand("query").
+    Flag("-filter").
+        Description("Filter condition").
+        Arg("COLUMN").Done().
+        Arg("OPERATOR").Done().
+        Arg("VALUE").Done().
+        Accumulate().
+        Local().  // Per-clause only
+        Done()
+```
+
+**Usage:**
+```bash
+# Each clause has its own filters
+$ myapp query -filter a eq 1 -filter b eq 2 + -filter c eq 3
+#              ^-- clause 1: 2 filters      ^-- clause 2: 1 filter
+```
+
+### Scope Comparison Table
+
+| Scope | Defined On | Available In | Use Case |
+|-------|-----------|--------------|----------|
+| Root Global | Root command | All subcommands, all clauses | App-wide settings (verbose, config file) |
+| Subcommand Global | Subcommand | That subcommand, all clauses | Subcommand-wide settings (output file, format) |
+| Subcommand Local | Subcommand | That subcommand, per clause | Clause-specific options (filters, conditions) |
+
+### Subcommand Builder Methods
+
+- `.Description(string)` - Set subcommand description
+- `.Author(string)` - Set author information
+- `.Example(usage, description)` - Add usage examples
+- `.Flag(names...)` - Define a flag (returns SubcommandFlagBuilder)
+- `.Positional(name)` - Define positional argument
+- `.Separators(seps...)` - Define clause separators (default: `+`, `-`)
+- `.Handler(func(*Context) error)` - Set the handler function
+- `.Done()` - Return to CommandBuilder
+
+### Handler Context
+
+The handler receives a `Context` with:
+
+```go
+type Context struct {
+    Command        *Command
+    Subcommand     string                    // Name of the subcommand
+    Clauses        []Clause                  // Parsed clauses
+    GlobalFlags    map[string]interface{}    // All global flags
+    ExecutionError error
+}
+```
+
+### Accessing Values in Handler
+
+```go
+Handler(func(ctx *cf.Context) error {
+    // Access root globals
+    verbose := ctx.GlobalFlags["-verbose"].(bool)
+    config := ctx.GlobalFlags["-config"].(string)
+
+    // Access subcommand globals
+    output := ctx.GlobalFlags["-output"].(string)
+    format := ctx.GlobalFlags["-format"].(string)
+
+    // Iterate through clauses
+    for i, clause := range ctx.Clauses {
+        fmt.Printf("Clause %d (separator: %s):\n", i+1, clause.Separator)
+
+        // Access local flags for this clause
+        if filters, ok := clause.Flags["-filter"]; ok {
+            for _, filter := range filters.([]interface{}) {
+                args := filter.([]string)
+                fmt.Printf("  Filter: %s %s %s\n", args[0], args[1], args[2])
+            }
+        }
+    }
+
+    return nil
+})
+```
+
+### Clauses in Subcommands
+
+Subcommands fully support clause-based parsing for building complex queries with Boolean logic:
+
+```bash
+# Single clause
+$ myapp query -filter status eq active -filter age gt 30
+
+# Multiple clauses with OR logic (+)
+$ myapp query -filter status eq active + -filter priority eq high
+
+# Multiple clauses with AND logic (-)
+$ myapp query -filter status eq active - -filter verified eq true
+
+# Complex: (active AND age>30) OR (priority=high)
+$ myapp query -filter status eq active -filter age gt 30 + -filter priority eq high
+```
+
+### Shell Completion
+
+Completion works automatically for subcommands:
+
+```bash
+$ myapp <TAB>
+query  import
+
+$ myapp -<TAB>
+-verbose  -v  -help  --help  -h  -man
+
+$ myapp query -<TAB>
+-verbose  -v  -output  -o  -filter  -sort  -help  --help  -h  -man
+
+$ myapp query -filter <TAB>
+<COLUMN>
+
+$ myapp query -filter status <TAB>
+eq  ne  gt  lt
+
+$ myapp query -filter status eq active + <TAB>
+-verbose  -v  -output  -o  -filter  -sort  -help  --help  -h  -man
+```
+
+### Help Generation
+
+#### Root Help
+
+Shows available subcommands and root global flags:
+
+```bash
+$ myapp -help
+```
+
+Output:
+```
+myapp v1.0.0 - My application with subcommands
+
+USAGE:
+    myapp [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
+
+COMMANDS:
+    import          Import data from files
+    query           Query data with filters using clauses
+
+GLOBAL OPTIONS:
+    -verbose, -v
+        Enable verbose output
+
+Use 'myapp <command> -help' for detailed help on a specific command.
+```
+
+#### Subcommand Help
+
+Shows detailed help for a specific subcommand:
+
+```bash
+$ myapp query -help
+```
+
+Output:
+```
+myapp query - Query data with filters using clauses
+
+USAGE:
+    myapp query [OPTIONS] [+|- ...]
+
+OPTIONS:
+    -output, -o FILE
+        Output file
+
+PER-CLAUSE OPTIONS:
+    -filter COLUMN OPERATOR VALUE
+        Filter condition
+        Can be specified multiple times
+
+CLAUSES:
+    Arguments can be grouped into clauses using separators.
+    Separators: +, -
+    Each clause is processed independently (typically with OR logic).
+```
+
+### Complete Subcommand Example
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    cf "github.com/rosscartlidge/completionflags"
+)
+
+func main() {
+    cmd := cf.NewCommand("datatool").
+        Version("2.0.0").
+        Description("Data query tool with subcommands and clauses").
+        Author("Your Name").
+
+        // Root global flags
+        Flag("-verbose", "-v").
+            Description("Enable verbose logging").
+            Bool().
+            Global().
+            Done().
+
+        Flag("-config", "-c").
+            Description("Configuration file").
+            Arg("FILE").
+                Hint("path/to/config.json").
+                Done().
+            String().
+            Global().
+            Done().
+
+        // Query subcommand
+        Subcommand("query").
+            Description("Query data with filters using clauses").
+            Example("datatool query -filter name eq Alice", "Find records where name equals Alice").
+            Example("datatool query -filter status eq active + -filter priority eq high", "OR query").
+
+            // Subcommand global flag
+            Flag("-output", "-o").
+                Description("Output file").
+                Arg("FILE").
+                    Hint("results.txt").
+                    Done().
+                String().
+                Global().
+                Done().
+
+            Flag("-format", "-f").
+                Description("Output format").
+                Arg("FORMAT").
+                    Values("json", "csv", "table").
+                    Done().
+                String().
+                Global().
+                Done().
+
+            // Per-clause local flags
+            Flag("-filter").
+                Description("Filter condition (can specify multiple per clause)").
+                Arg("COLUMN").
+                    Completer(cf.StaticCompleter("name", "email", "status", "age", "created")).
+                    Done().
+                Arg("OPERATOR").
+                    Completer(cf.StaticCompleter("eq", "ne", "gt", "lt", "gte", "lte", "contains")).
+                    Done().
+                Arg("VALUE").
+                    Hint("<value>").
+                    Done().
+                Accumulate().
+                Local().
+                Done().
+
+            Flag("-sort").
+                Description("Sort by column").
+                Arg("COLUMN").
+                    Completer(cf.StaticCompleter("name", "email", "status", "age", "created")).
+                    Done().
+                String().
+                Local().
+                Done().
+
+            Flag("-limit").
+                Description("Limit results per clause").
+                Arg("N").Done().
+                Int().
+                Local().
+                Done().
+
+            Handler(func(ctx *cf.Context) error {
+                // Access root globals
+                verbose := ctx.GlobalFlags["-verbose"].(bool)
+                config := ctx.GlobalFlags["-config"].(string)
+
+                // Access subcommand globals
+                output := ctx.GlobalFlags["-output"].(string)
+                format := ctx.GlobalFlags["-format"].(string)
+
+                if verbose {
+                    fmt.Printf("Query Subcommand\n")
+                    fmt.Printf("Verbose: %v\n", verbose)
+                    fmt.Printf("Config: %s\n", config)
+                    fmt.Printf("Output: %s\n", output)
+                    fmt.Printf("Format: %s\n", format)
+                    fmt.Printf("Number of clauses: %d\n\n", len(ctx.Clauses))
+                }
+
+                // Process each clause
+                for i, clause := range ctx.Clauses {
+                    if i == 0 {
+                        fmt.Printf("Clause %d (initial):\n", i+1)
+                    } else {
+                        fmt.Printf("Clause %d (separator: %s):\n", i+1, clause.Separator)
+                    }
+
+                    // Local flags for this clause
+                    if filters, ok := clause.Flags["-filter"]; ok {
+                        for _, filter := range filters.([]interface{}) {
+                            args := filter.([]string)
+                            fmt.Printf("  Filter: %s %s %s\n", args[0], args[1], args[2])
+                        }
+                    }
+
+                    if sort, ok := clause.Flags["-sort"].(string); ok && sort != "" {
+                        fmt.Printf("  Sort: %s\n", sort)
+                    }
+
+                    if limit, ok := clause.Flags["-limit"].(int); ok && limit > 0 {
+                        fmt.Printf("  Limit: %d\n", limit)
+                    }
+
+                    fmt.Println()
+                }
+
+                return nil
+            }).
+            Done().
+
+        // Import subcommand
+        Subcommand("import").
+            Description("Import data from files").
+            Example("datatool import data.csv", "Import from CSV file").
+
+            Positional("FILE").
+                Description("File to import").
+                Required().
+                Done().
+
+            Flag("-type", "-t").
+                Description("File type").
+                Arg("TYPE").
+                    Values("csv", "json", "xml").
+                    Done().
+                String().
+                Global().
+                Done().
+
+            Flag("-skip-errors").
+                Description("Skip rows with errors").
+                Bool().
+                Global().
+                Done().
+
+            Handler(func(ctx *cf.Context) error {
+                file := ctx.GlobalFlags["FILE"].(string)
+                fileType := ctx.GlobalFlags["-type"].(string)
+                skipErrors := ctx.GlobalFlags["-skip-errors"].(bool)
+                verbose := ctx.GlobalFlags["-verbose"].(bool)
+
+                if verbose {
+                    fmt.Printf("Import Subcommand\n")
+                    fmt.Printf("File: %s\n", file)
+                    fmt.Printf("Type: %s\n", fileType)
+                    fmt.Printf("Skip Errors: %v\n", skipErrors)
+                }
+
+                fmt.Printf("Importing from: %s\n", file)
+                return nil
+            }).
+            Done().
+
+        Build()
+
+    if err := cmd.Execute(); err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+}
+```
+
+### Usage Examples
+
+```bash
+# Simple query
+$ datatool query -filter name eq Alice
+
+# Complex query with multiple clauses
+$ datatool -v query -output results.json -format json \
+    -filter status eq active -filter age gt 30 -sort name -limit 10 + \
+    -filter priority eq high -sort created -limit 5
+
+# Import with options
+$ datatool -verbose import -type csv -skip-errors data.csv
+
+# Root global can go anywhere
+$ datatool query -verbose -filter status eq active
+$ datatool -verbose query -filter status eq active
+# Both work identically!
+```
+
+### Best Practices for Subcommands
+
+#### 1. Scope Selection
+
+- **Root Global**: App-wide settings that apply everywhere
+  - `-verbose`, `-config`, `-debug`
+- **Subcommand Global**: Settings that affect the whole subcommand
+  - `-output`, `-format`, `-timeout`
+- **Subcommand Local**: Clause-specific options
+  - `-filter`, `-sort`, `-limit`
+
+#### 2. Handler Design
+
+```go
+Handler(func(ctx *cf.Context) error {
+    // 1. Extract globals first
+    verbose := ctx.GlobalFlags["-verbose"].(bool)
+
+    // 2. Validate inputs
+    if len(ctx.Clauses) == 0 {
+        return fmt.Errorf("at least one clause required")
+    }
+
+    // 3. Process clauses
+    for _, clause := range ctx.Clauses {
+        // Process each clause
+    }
+
+    // 4. Return error or nil
+    return nil
+})
+```
+
+#### 3. Error Handling
+
+```go
+// Don't print errors in handler - let Execute() handle it
+Handler(func(ctx *cf.Context) error {
+    if err := validate(input); err != nil {
+        return fmt.Errorf("validation failed: %w", err)
+    }
+    return nil
+})
+
+// In main()
+if err := cmd.Execute(); err != nil {
+    fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+    os.Exit(1)
+}
+```
+
+#### 4. Testing
+
+Test your subcommands with various flag positions:
+
+```bash
+# Root globals before subcommand
+$ myapp -verbose query ...
+
+# Root globals after subcommand
+$ myapp query -verbose ...
+
+# Mixed positions
+$ myapp -verbose query -output file.txt -verbose ...
+
+# Multiple clauses
+$ myapp query -filter a eq 1 + -filter b eq 2
+
+# Edge cases
+$ myapp query  # No filters
+$ myapp -help  # Root help
+$ myapp query -help  # Subcommand help
+```
+
+### Troubleshooting Subcommands
+
+#### "unknown flag" Error
+
+If you get `unknown flag` errors:
+
+- Check flag scope: Is it Global or Local?
+- Root globals must be defined on root command with `.Global()`
+- Subcommand globals must be defined on subcommand with `.Global()`
+- Local flags are per-clause only
+
+#### Completion Not Working
+
+- Ensure completion script is sourced: `source ~/.bash_completion.d/myapp`
+- Regenerate after changes: `myapp -completion-script > ~/.bash_completion.d/myapp`
+- Check binary name matches: Use the actual binary name in commands
+- Reload shell or run: `source ~/.bashrc`
+
+#### Help Not Showing Subcommands
+
+- Ensure subcommands are defined before `.Build()`
+- Check that `.Done()` is called on each subcommand
+- Run `myapp -help` for root help, `myapp subcommand -help` for subcommand help
 
 ## Flag Configuration
 

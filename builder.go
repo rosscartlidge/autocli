@@ -87,8 +87,10 @@ func (cb *CommandBuilder) Build() *Command {
 	if cb.cmd.name == "" {
 		panic("command name is required")
 	}
-	if cb.cmd.handler == nil {
-		panic("command handler is required")
+
+	// Handler is optional if subcommands are defined
+	if cb.cmd.handler == nil && len(cb.cmd.subcommands) == 0 {
+		panic("command requires either a handler or subcommands")
 	}
 
 	// Validate positional arguments
@@ -102,6 +104,7 @@ func (cb *CommandBuilder) Build() *Command {
 // FlagBuilder provides a fluent API for configuring a flag
 type FlagBuilder struct {
 	cb   *CommandBuilder
+	sb   *SubcommandBuilder
 	spec *FlagSpec
 }
 
@@ -359,9 +362,14 @@ func (ab *ArgBuilder) Done() *FlagBuilder {
 	return ab.fb
 }
 
-// Done finalizes the flag and returns to the command builder
+// Done finalizes the flag and returns to the command or subcommand builder
 func (fb *FlagBuilder) Done() *CommandBuilder {
-	// Add the flag spec to the command
+	if fb.sb != nil {
+		// Subcommand flag
+		fb.sb.subcmd.Flags = append(fb.sb.subcmd.Flags, fb.spec)
+		return fb.sb.parent
+	}
+	// Command flag
 	fb.cb.cmd.flags = append(fb.cb.cmd.flags, fb.spec)
 	return fb.cb
 }

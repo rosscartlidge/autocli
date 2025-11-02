@@ -17,6 +17,7 @@ type Command struct {
 	separators    []string
 	prefixHandler PrefixHandler
 	examples      []Example
+	subcommands   map[string]*Subcommand // Subcommands for this command
 }
 
 // FlagSpec defines a flag with 0 or more arguments
@@ -82,6 +83,7 @@ type Clause struct {
 // Context is passed to handler with all parsed clauses
 type Context struct {
 	Command        *Command
+	Subcommand     string                    // Name of subcommand being executed (empty for root)
 	Clauses        []Clause                  // All parsed clauses
 	GlobalFlags    map[string]interface{}    // Flags marked as global (apply to all clauses)
 	RawArgs        []string                  // Original arguments

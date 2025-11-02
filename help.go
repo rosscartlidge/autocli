@@ -7,6 +7,12 @@ import (
 
 // GenerateHelp generates usage text for -help
 func (cmd *Command) GenerateHelp() string {
+	// If we have subcommands, generate subcommand-aware help
+	if len(cmd.subcommands) > 0 {
+		return cmd.generateHelpWithSubcommands()
+	}
+
+	// Standard help generation (no subcommands)
 	var sb strings.Builder
 
 	// Header
@@ -92,6 +98,65 @@ func (cmd *Command) GenerateHelp() string {
 	}
 
 	// Footer
+	sb.WriteString(fmt.Sprintf("Use '%s -man' to view the full manual page.\n", cmd.name))
+
+	return sb.String()
+}
+
+// generateHelpWithSubcommands generates help for a command with subcommands
+func (cmd *Command) generateHelpWithSubcommands() string {
+	var sb strings.Builder
+
+	// Header
+	if cmd.version != "" {
+		sb.WriteString(fmt.Sprintf("%s v%s", cmd.name, cmd.version))
+	} else {
+		sb.WriteString(cmd.name)
+	}
+
+	if cmd.description != "" {
+		sb.WriteString(fmt.Sprintf(" - %s", cmd.description))
+	}
+	sb.WriteString("\n\n")
+
+	// Usage
+	sb.WriteString("USAGE:\n")
+	sb.WriteString(fmt.Sprintf("    %s [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]\n\n", cmd.name))
+
+	// Subcommands
+	sb.WriteString("COMMANDS:\n")
+	for name, subcmd := range cmd.subcommands {
+		sb.WriteString(fmt.Sprintf("    %-15s %s\n", name, subcmd.Description))
+	}
+	sb.WriteString("\n")
+
+	// Global options
+	globalFlags := cmd.rootGlobalFlags()
+	if len(globalFlags) > 0 {
+		sb.WriteString("GLOBAL OPTIONS:\n")
+		for _, spec := range globalFlags {
+			if spec.Hidden {
+				continue
+			}
+			sb.WriteString(cmd.formatFlag(spec))
+			sb.WriteString("\n")
+		}
+	}
+
+	// Examples
+	if len(cmd.examples) > 0 {
+		sb.WriteString("EXAMPLES:\n")
+		for _, example := range cmd.examples {
+			sb.WriteString(fmt.Sprintf("    %s\n", example.Command))
+			if example.Description != "" {
+				sb.WriteString(fmt.Sprintf("        %s\n", example.Description))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	// Footer
+	sb.WriteString(fmt.Sprintf("Use '%s <command> -help' for detailed help on a specific command.\n", cmd.name))
 	sb.WriteString(fmt.Sprintf("Use '%s -man' to view the full manual page.\n", cmd.name))
 
 	return sb.String()

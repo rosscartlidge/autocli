@@ -10,7 +10,7 @@ import (
 
 // Execute parses arguments and runs the handler
 func (cmd *Command) Execute(args []string) error {
-	// Check for special flags first
+	// Check for special flags first (before subcommand parsing)
 	if len(args) > 0 {
 		switch args[0] {
 		case "-help", "--help", "-h":
@@ -30,7 +30,59 @@ func (cmd *Command) Execute(args []string) error {
 		}
 	}
 
-	// Parse into clauses
+	// Parse root global flags
+	rootGlobalFlags, remaining, err := cmd.parseRootGlobalFlags(args)
+	if err != nil {
+		return err
+	}
+
+	// Check if first remaining arg is a subcommand
+	if len(remaining) > 0 && cmd.hasSubcommand(remaining[0]) {
+		subcommandName := remaining[0]
+		subcmd := cmd.getSubcommand(subcommandName)
+
+		// Check for subcommand help
+		if len(remaining) > 1 {
+			switch remaining[1] {
+			case "-help", "--help", "-h":
+				fmt.Println(subcmd.GenerateHelp(cmd.name))
+				return nil
+			case "-man":
+				fmt.Println(subcmd.GenerateManPage(cmd.name))
+				return nil
+			}
+		}
+
+		// Parse subcommand with clauses
+		ctx, err := cmd.parseSubcommand(subcmd, rootGlobalFlags, remaining[1:])
+		if err != nil {
+			return err
+		}
+
+		ctx.Subcommand = subcommandName
+
+		// Validate
+		if err := cmd.validateSubcommand(subcmd, ctx); err != nil {
+			return err
+		}
+
+		// Bind values
+		if err := cmd.bindSubcommandValues(subcmd, ctx); err != nil {
+			return err
+		}
+
+		// Execute subcommand handler
+		return subcmd.Handler(ctx)
+	}
+
+	// No subcommand - execute root handler or show help
+	if cmd.handler == nil {
+		// No handler and no subcommand - show help
+		fmt.Println(cmd.GenerateHelp())
+		return nil
+	}
+
+	// Parse into clauses (standard parsing)
 	ctx, err := cmd.Parse(args)
 	if err != nil {
 		return err
@@ -616,4 +668,150 @@ func setValue(target reflect.Value, value interface{}) error {
 	}
 
 	return fmt.Errorf("cannot assign %T to %v", value, target.Type())
+}
+
+// parseRootGlobalFlags parses only the root global flags and returns remaining args
+func (cmd *Command) parseRootGlobalFlags(args []string) (map[string]interface{}, []string, error) {
+	flags := make(map[string]interface{})
+	i := 0
+
+	for i < len(args) {
+		arg := args[i]
+
+		// Stop at first non-flag
+		if !strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "+") {
+			break
+		}
+
+		// Find if this is a root global flag
+		spec := cmd.findRootGlobalFlag(arg)
+		if spec == nil {
+			// Not a root global flag - stop here
+			break
+		}
+
+		// Parse flag value
+		if spec.ArgCount == 0 {
+			// Boolean flag
+			flags[spec.Names[0]] = true
+			i++
+		} else {
+			// Flag with arguments
+			if i+spec.ArgCount >= len(args) {
+				return nil, nil, fmt.Errorf("flag %s requires %d argument(s)", spec.Names[0], spec.ArgCount)
+			}
+
+			// Parse the arguments
+			if spec.ArgCount == 1 {
+				// Single argument
+				value, err := parseArgValue(args[i+1], spec.ArgTypes[0], spec, flags)
+				if err != nil {
+					return nil, nil, fmt.Errorf("flag %s: %v", spec.Names[0], err)
+				}
+				flags[spec.Names[0]] = value
+			} else {
+				// Multi-argument flag
+				argMap := make(map[string]interface{})
+				for j := 0; j < spec.ArgCount; j++ {
+					value, err := parseArgValue(args[i+1+j], spec.ArgTypes[j], spec, flags)
+					if err != nil {
+						return nil, nil, fmt.Errorf("flag %s argument %d: %v", spec.Names[0], j, err)
+					}
+					argMap[spec.ArgNames[j]] = value
+				}
+				flags[spec.Names[0]] = argMap
+			}
+
+			i += 1 + spec.ArgCount
+		}
+	}
+
+	return flags, args[i:], nil
+}
+
+// findRootGlobalFlag finds a root global flag by name
+func (cmd *Command) findRootGlobalFlag(name string) *FlagSpec {
+	for _, spec := range cmd.flags {
+		if spec.Scope == ScopeGlobal {
+			for _, n := range spec.Names {
+				if n == name {
+					return spec
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// parseSubcommand parses a subcommand with its flags and clauses
+func (cmd *Command) parseSubcommand(subcmd *Subcommand, rootGlobals map[string]interface{}, args []string) (*Context, error) {
+	// Create a temporary command with both root global flags and subcommand's flags
+	// This allows root globals to be specified after the subcommand name
+	tempCmd := &Command{
+		name:       subcmd.Name,
+		flags:      append(cmd.rootGlobalFlags(), subcmd.Flags...),
+		separators: subcmd.Separators,
+	}
+
+	// Parse using standard parser
+	ctx, err := tempCmd.Parse(args)
+	if err != nil {
+		return nil, err
+	}
+
+	// Merge root globals into context
+	for k, v := range rootGlobals {
+		ctx.GlobalFlags[k] = v
+	}
+
+	// Set the actual command reference
+	ctx.Command = cmd
+
+	return ctx, nil
+}
+
+// validateSubcommand validates a parsed subcommand context
+func (cmd *Command) validateSubcommand(subcmd *Subcommand, ctx *Context) error {
+	// Create temporary command for validation
+	tempCmd := &Command{
+		flags: subcmd.Flags,
+	}
+
+	return tempCmd.validate(ctx)
+}
+
+// bindSubcommandValues binds parsed values to variables for a subcommand
+func (cmd *Command) bindSubcommandValues(subcmd *Subcommand, ctx *Context) error {
+	// First bind root global flags
+	for _, spec := range cmd.flags {
+		if spec.Scope != ScopeGlobal || spec.Pointer == nil {
+			continue
+		}
+
+		ptr := reflect.ValueOf(spec.Pointer)
+		if ptr.Kind() != reflect.Ptr {
+			continue
+		}
+
+		elem := ptr.Elem()
+		if !elem.CanSet() {
+			continue
+		}
+
+		value, exists := ctx.GlobalFlags[spec.Names[0]]
+		if !exists {
+			continue
+		}
+
+		if err := setValue(elem, value); err != nil {
+			return fmt.Errorf("binding root global %s: %w", spec.Names[0], err)
+		}
+	}
+
+	// Then bind subcommand flags
+	tempCmd := &Command{
+		flags: subcmd.Flags,
+	}
+
+	return tempCmd.bindValues(ctx)
 }
