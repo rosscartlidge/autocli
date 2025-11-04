@@ -12,7 +12,7 @@ func main() {
 	var outputFile string
 
 	cmd := cf.NewCommand("datatool").
-		Version("2.0.0").
+		Version("1.0.0").
 		Description("Data query tool with subcommands and clauses").
 
 		// Root global flags

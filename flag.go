@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// Version is the completionflags library version
+const Version = "1.0.0"
+
 // Command represents a CLI command with flags, clauses, and completion support
 type Command struct {
 	name          string
