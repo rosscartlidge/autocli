@@ -158,6 +158,10 @@ func (cmd *Command) generateHelpWithSubcommands() string {
 	// Footer
 	sb.WriteString(fmt.Sprintf("Use '%s <command> -help' for detailed help on a specific command.\n", cmd.name))
 	sb.WriteString(fmt.Sprintf("Use '%s -man' to view the full manual page.\n", cmd.name))
+	sb.WriteString("\n")
+	sb.WriteString("SHELL COMPLETION:\n")
+	sb.WriteString(fmt.Sprintf("    To enable tab completion, add to your ~/.bashrc:\n"))
+	sb.WriteString(fmt.Sprintf("        eval \"$(%s -completion-script)\"\n", cmd.name))
 
 	return sb.String()
 }
