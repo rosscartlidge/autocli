@@ -77,8 +77,17 @@ func (cmd *Command) GenerateHelp() string {
 		}
 	}
 
-	// Clauses explanation
-	if len(cmd.separators) > 0 {
+	// Check if there are any local-scoped flags
+	hasLocalFlags := false
+	for _, spec := range namedFlags {
+		if spec.Scope == ScopeLocal {
+			hasLocalFlags = true
+			break
+		}
+	}
+
+	// Clauses explanation (only show if command has per-clause flags)
+	if len(cmd.separators) > 0 && hasLocalFlags {
 		sb.WriteString("CLAUSES:\n")
 		sb.WriteString("    Arguments can be grouped into clauses using separators.\n")
 		sb.WriteString(fmt.Sprintf("    Separators: %s\n", strings.Join(cmd.separators, ", ")))

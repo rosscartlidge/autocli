@@ -319,8 +319,8 @@ func (subcmd *Subcommand) GenerateHelp(parentName string) string {
 		}
 	}
 
-	// Clauses explanation
-	if len(subcmd.Separators) > 0 {
+	// Clauses explanation (only show if command has per-clause flags)
+	if len(subcmd.Separators) > 0 && len(localFlags) > 0 {
 		sb.WriteString("CLAUSES:\n")
 		sb.WriteString("    Arguments can be grouped into clauses using separators.\n")
 		sb.WriteString(fmt.Sprintf("    Separators: %s\n", strings.Join(subcmd.Separators, ", ")))
