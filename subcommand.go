@@ -7,13 +7,14 @@ import (
 
 // Subcommand represents a subcommand with its own flags, positionals, and handler
 type Subcommand struct {
-	Name        string
-	Description string
-	Author      string
-	Examples    []Example
-	Flags       []*FlagSpec
-	Handler     ClauseHandlerFunc
-	Separators  []string
+	Name              string
+	Description       string
+	Author            string
+	Examples          []Example
+	Flags             []*FlagSpec
+	Handler           ClauseHandlerFunc
+	Separators        []string
+	ClauseDescription string // Custom description for CLAUSES section (optional)
 }
 
 // SubcommandBuilder provides a fluent API for building subcommands
@@ -73,6 +74,12 @@ func (sb *SubcommandBuilder) Example(command, description string) *SubcommandBui
 		Command:     command,
 		Description: description,
 	})
+	return sb
+}
+
+// ClauseDescription sets a custom description for the CLAUSES section
+func (sb *SubcommandBuilder) ClauseDescription(desc string) *SubcommandBuilder {
+	sb.subcmd.ClauseDescription = desc
 	return sb
 }
 
@@ -322,9 +329,17 @@ func (subcmd *Subcommand) GenerateHelp(parentName string) string {
 	// Clauses explanation (only show if command has per-clause flags)
 	if len(subcmd.Separators) > 0 && len(localFlags) > 0 {
 		sb.WriteString("CLAUSES:\n")
-		sb.WriteString("    Arguments can be grouped into clauses using separators.\n")
-		sb.WriteString(fmt.Sprintf("    Separators: %s\n", strings.Join(subcmd.Separators, ", ")))
-		sb.WriteString("    Each clause is processed independently (typically with OR logic).\n\n")
+		if subcmd.ClauseDescription != "" {
+			// Use custom clause description if provided
+			sb.WriteString("    ")
+			sb.WriteString(subcmd.ClauseDescription)
+			sb.WriteString("\n\n")
+		} else {
+			// Use default clause description
+			sb.WriteString("    Arguments can be grouped into clauses using separators.\n")
+			sb.WriteString(fmt.Sprintf("    Separators: %s\n", strings.Join(subcmd.Separators, ", ")))
+			sb.WriteString("    Each clause is processed independently (typically with OR logic).\n\n")
+		}
 	}
 
 	// Examples
