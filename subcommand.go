@@ -475,19 +475,19 @@ func (subcmd *Subcommand) GenerateManPage(parentName string) string {
 			if spec.Required {
 				sb.WriteString(fmt.Sprintf("\n.I %s...", argName))
 			} else {
-				sb.WriteString(fmt.Sprintf("\n[.I %s...]", argName))
+				sb.WriteString(fmt.Sprintf("\n[\\fI%s...\\fR]", argName))
 			}
 		} else {
 			if spec.Required {
 				sb.WriteString(fmt.Sprintf("\n.I %s", argName))
 			} else {
-				sb.WriteString(fmt.Sprintf("\n[.I %s]", argName))
+				sb.WriteString(fmt.Sprintf("\n[\\fI%s\\fR]", argName))
 			}
 		}
 	}
 
 	if len(subcmd.Separators) > 0 {
-		sb.WriteString(fmt.Sprintf("\n[.I %s ...]", strings.Join(subcmd.Separators, "|")))
+		sb.WriteString(fmt.Sprintf("\n[\\fI%s ...\\fR]", strings.Join(subcmd.Separators, "|")))
 	}
 	sb.WriteString("\n")
 

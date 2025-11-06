@@ -44,13 +44,13 @@ func (cmd *Command) GenerateManPage() string {
 			if spec.Required {
 				sb.WriteString(fmt.Sprintf("\n.I %s...", escapeGroff(argName)))
 			} else {
-				sb.WriteString(fmt.Sprintf("\n[.I %s...]", escapeGroff(argName)))
+				sb.WriteString(fmt.Sprintf("\n[\\fI%s...\\fR]", escapeGroff(argName)))
 			}
 		} else {
 			if spec.Required {
 				sb.WriteString(fmt.Sprintf("\n.I %s", escapeGroff(argName)))
 			} else {
-				sb.WriteString(fmt.Sprintf("\n[.I %s]", escapeGroff(argName)))
+				sb.WriteString(fmt.Sprintf("\n[\\fI%s\\fR]", escapeGroff(argName)))
 			}
 		}
 	}
