@@ -494,11 +494,6 @@ func (subcmd *Subcommand) GenerateManPage(parentName string) string {
 	// DESCRIPTION section
 	if subcmd.Description != "" {
 		sb.WriteString(".SH DESCRIPTION\n")
-		sb.WriteString(".B ")
-		sb.WriteString(parentName)
-		sb.WriteString(" ")
-		sb.WriteString(subcmd.Name)
-		sb.WriteString("\n")
 		sb.WriteString(subcmd.Description)
 		sb.WriteString("\n")
 	}

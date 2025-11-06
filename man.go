@@ -59,9 +59,6 @@ func (cmd *Command) GenerateManPage() string {
 	// DESCRIPTION section
 	if cmd.description != "" {
 		sb.WriteString(".SH DESCRIPTION\n")
-		sb.WriteString(".B ")
-		sb.WriteString(escapeGroff(cmd.name))
-		sb.WriteString("\n")
 		sb.WriteString(escapeGroff(cmd.description))
 		sb.WriteString("\n")
 	}
