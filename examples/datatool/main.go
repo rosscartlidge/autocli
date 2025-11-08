@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	cf "github.com/rosscartlidge/completionflags"
+	cf "github.com/rosscartlidge/completionflags/v2"
 )
 
 type Config struct {

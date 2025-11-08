@@ -24,7 +24,6 @@ type Builder interface {
 	Subcommand(name string) *SubcommandBuilder
 	Done() Builder
 	Handler(h ClauseHandlerFunc) Builder
-	Example(command, description string) Builder
 	Build() *Command
 }
 
@@ -89,7 +88,7 @@ func (sb *SubcommandBuilder) Author(author string) *SubcommandBuilder {
 }
 
 // Example adds a usage example
-func (sb *SubcommandBuilder) Example(command, description string) Builder {
+func (sb *SubcommandBuilder) Example(command, description string) *SubcommandBuilder {
 	sb.subcmd.Examples = append(sb.subcmd.Examples, Example{
 		Command:     command,
 		Description: description,

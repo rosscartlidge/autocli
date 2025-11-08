@@ -38,7 +38,7 @@ func (cb *CommandBuilder) Author(author string) *CommandBuilder {
 }
 
 // Example adds a usage example
-func (cb *CommandBuilder) Example(command, description string) Builder {
+func (cb *CommandBuilder) Example(command, description string) *CommandBuilder {
 	cb.cmd.examples = append(cb.cmd.examples, Example{
 		Command:     command,
 		Description: description,
