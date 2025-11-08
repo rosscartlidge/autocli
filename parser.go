@@ -35,38 +35,79 @@ func (cmd *Command) Execute(args []string) error {
 		return err
 	}
 
-	// Check if first remaining arg is a subcommand
+	// Walk down the subcommand tree as far as possible
 	if len(remaining) > 0 && cmd.hasSubcommand(remaining[0]) {
-		subcommandName := remaining[0]
-		subcmd := cmd.getSubcommand(subcommandName)
+		path := []string{}
+		currentSubcommands := cmd.subcommands
+		var leafSubcmd *Subcommand
+		argIndex := 0
 
-		// Check for subcommand help
-		if len(remaining) > 1 {
-			switch remaining[1] {
-			case "-help", "--help", "-h":
-				fmt.Println(subcmd.GenerateHelp(cmd.name))
-				return nil
-			case "-man":
-				fmt.Println(subcmd.GenerateManPage(cmd.name))
-				return nil
+		// Walk the tree
+		for argIndex < len(remaining) {
+			subcommandName := remaining[argIndex]
+			subcmd := currentSubcommands[subcommandName]
+
+			if subcmd == nil {
+				// Not a subcommand at this level - stop walking
+				break
+			}
+
+			// Found a subcommand
+			path = append(path, subcommandName)
+			leafSubcmd = subcmd
+			argIndex++
+
+			// Check for help flags immediately after this subcommand
+			if argIndex < len(remaining) {
+				switch remaining[argIndex] {
+				case "-help", "--help", "-h":
+					fmt.Println(subcmd.GenerateHelp(cmd.name))
+					return nil
+				case "-man":
+					fmt.Println(subcmd.GenerateManPage(cmd.name))
+					return nil
+				}
+			}
+
+			// Move to nested subcommands (if any)
+			if subcmd.Subcommands != nil {
+				currentSubcommands = subcmd.Subcommands
+			} else {
+				// No more nested subcommands - this is the leaf
+				break
 			}
 		}
 
-		// Parse subcommand with clauses
-		ctx, err := cmd.parseSubcommand(subcmd, rootGlobalFlags, remaining[1:])
-		if err != nil {
-			return err
+		// We have a subcommand (possibly nested)
+		if leafSubcmd != nil {
+			// Check if this is an intermediate node with no handler
+			if leafSubcmd.Handler == nil && len(leafSubcmd.Subcommands) > 0 {
+				// Intermediate node with no handler - show help
+				fmt.Println(leafSubcmd.GenerateHelp(cmd.name))
+				return nil
+			}
+
+			// Ensure handler exists
+			if leafSubcmd.Handler == nil {
+				return fmt.Errorf("subcommand %q has no handler", strings.Join(path, " "))
+			}
+
+			// Parse subcommand arguments (everything after the subcommand path)
+			ctx, err := cmd.parseSubcommand(leafSubcmd, rootGlobalFlags, remaining[argIndex:])
+			if err != nil {
+				return err
+			}
+
+			ctx.SubcommandPath = path
+
+			// Validate
+			if err := cmd.validateSubcommand(leafSubcmd, ctx); err != nil {
+				return err
+			}
+
+			// Execute subcommand handler
+			return leafSubcmd.Handler(ctx)
 		}
-
-		ctx.SubcommandPath = []string{subcommandName} // TODO: Update for nested subcommands
-
-		// Validate
-		if err := cmd.validateSubcommand(subcmd, ctx); err != nil {
-			return err
-		}
-
-		// Execute subcommand handler
-		return subcmd.Handler(ctx)
 	}
 
 	// No subcommand - execute root handler or show help

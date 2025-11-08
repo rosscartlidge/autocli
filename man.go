@@ -66,13 +66,7 @@ func (cmd *Command) GenerateManPage() string {
 	// COMMANDS section (subcommands)
 	if len(cmd.subcommands) > 0 {
 		sb.WriteString(".SH COMMANDS\n")
-		for name, subcmd := range cmd.subcommands {
-			sb.WriteString(".TP\n")
-			sb.WriteString(fmt.Sprintf(".B %s\n", escapeGroff(name)))
-			if subcmd.Description != "" {
-				sb.WriteString(fmt.Sprintf("%s\n", escapeGroff(subcmd.Description)))
-			}
-		}
+		cmd.formatManSubcommands(&sb, cmd.subcommands, "")
 	}
 
 	// ARGUMENTS section (positional)
@@ -266,6 +260,45 @@ func (cmd *Command) formatManFlag(spec *FlagSpec) string {
 	}
 
 	return sb.String()
+}
+
+// formatManSubcommands recursively formats subcommands for man pages
+func (cmd *Command) formatManSubcommands(sb *strings.Builder, subcommands map[string]*Subcommand, prefix string) {
+	// Sort subcommand names for consistent output
+	names := make([]string, 0, len(subcommands))
+	for name := range subcommands {
+		names = append(names, name)
+	}
+	// Simple alphabetical sort
+	for i := 0; i < len(names); i++ {
+		for j := i + 1; j < len(names); j++ {
+			if names[i] > names[j] {
+				names[i], names[j] = names[j], names[i]
+			}
+		}
+	}
+
+	// Format each subcommand
+	for _, name := range names {
+		subcmd := subcommands[name]
+
+		// Build full path for nested subcommands
+		fullName := name
+		if prefix != "" {
+			fullName = prefix + " " + name
+		}
+
+		sb.WriteString(".TP\n")
+		sb.WriteString(fmt.Sprintf(".B %s\n", escapeGroff(fullName)))
+		if subcmd.Description != "" {
+			sb.WriteString(fmt.Sprintf("%s\n", escapeGroff(subcmd.Description)))
+		}
+
+		// Recursively format nested subcommands
+		if len(subcmd.Subcommands) > 0 {
+			cmd.formatManSubcommands(sb, subcmd.Subcommands, fullName)
+		}
+	}
 }
 
 // escapeGroff escapes special characters for groff format

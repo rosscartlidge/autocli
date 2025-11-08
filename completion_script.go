@@ -363,44 +363,84 @@ func (cmd *Command) completeWithSubcommands(args []string, pos int) ([]string, e
 		return cmd.completeSubcommandNames(partial), nil
 	}
 
-	// Case 2: We have a subcommand, route to its completion
+	// Case 2: Walk the subcommand tree to find where we are
 	if len(remaining) > 0 {
-		subcommandName := remaining[0]
-		subcmd := cmd.getSubcommand(subcommandName)
-		if subcmd == nil {
-			// Unknown subcommand - still show subcommand names
-			argIndex := pos - 1
-			partial := ""
-			if argIndex >= 0 && argIndex < len(args) {
-				partial = args[argIndex]
+		path := []string{}
+		currentSubcommands := cmd.subcommands
+		var leafSubcmd *Subcommand
+		argIndex := 0
+
+		// Walk the tree as far as we have confirmed subcommands
+		for argIndex < len(remaining) && argIndex < remainingPos {
+			subcommandName := remaining[argIndex]
+			subcmd := currentSubcommands[subcommandName]
+
+			if subcmd == nil {
+				// Not a subcommand - stop walking
+				break
 			}
-			return cmd.completeSubcommandNames(partial), nil
+
+			// Confirmed subcommand
+			path = append(path, subcommandName)
+			leafSubcmd = subcmd
+			argIndex++
+
+			// Move to nested subcommands if available
+			if subcmd.Subcommands != nil {
+				currentSubcommands = subcmd.Subcommands
+			} else {
+				// No more nested - this is the leaf
+				break
+			}
 		}
 
-		// Create a temporary command for the subcommand with both root globals and subcommand flags
-		tempCmd := &Command{
-			name:       subcmd.Name,
-			flags:      append(cmd.rootGlobalFlags(), subcmd.Flags...),
-			separators: subcmd.Separators,
+		// Determine what we're completing
+		partial := ""
+		if pos-1 >= 0 && pos-1 < len(args) {
+			partial = args[pos-1]
 		}
 
-		// Complete using subcommand context (remaining args after subcommand name)
-		subcommandArgs := remaining[1:]
-		// Calculate position for analyzeCompletionContext
-		// remainingPos is where we are in 'remaining' array
-		// subcommandArgs is remaining[1:] (skipped subcommand name)
-		// analyzeCompletionContext expects COMP_WORDS-style position (with command at index 0)
-		// Position in subcommandArgs = remainingPos - 1 (skip subcommand)
-		// COMP_WORDS-style position = position in array + 1
-		subcommandPos := remainingPos // This already accounts for both adjustments
+		// If we're at a position where we could be completing a nested subcommand name
+		if argIndex == remainingPos && leafSubcmd != nil && len(leafSubcmd.Subcommands) > 0 {
+			// Check if completing a flag or a nested subcommand
+			if strings.HasPrefix(partial, "-") || strings.HasPrefix(partial, "+") {
+				// Complete flags for this level (root globals + current subcommand flags)
+				tempCmd := &Command{
+					name:       leafSubcmd.Name,
+					flags:      append(cmd.rootGlobalFlags(), leafSubcmd.Flags...),
+					separators: leafSubcmd.Separators,
+				}
+				return tempCmd.completeFlagNames(partial), nil
+			}
 
-		ctx := tempCmd.analyzeCompletionContext(subcommandArgs, subcommandPos)
-		// Merge in already-parsed root globals
-		for k, v := range rootGlobals {
-			ctx.GlobalFlags[k] = v
+			// Complete nested subcommand names
+			return cmd.completeNestedSubcommandNames(leafSubcmd.Subcommands, partial), nil
 		}
 
-		return tempCmd.executeCompletion(ctx)
+		// We have a leaf subcommand, complete its arguments
+		if leafSubcmd != nil {
+			// Create a temporary command for the leaf subcommand
+			tempCmd := &Command{
+				name:       leafSubcmd.Name,
+				flags:      append(cmd.rootGlobalFlags(), leafSubcmd.Flags...),
+				separators: leafSubcmd.Separators,
+			}
+
+			// Complete using subcommand context (remaining args after subcommand path)
+			subcommandArgs := remaining[argIndex:]
+			subcommandPos := remainingPos - argIndex
+
+			ctx := tempCmd.analyzeCompletionContext(subcommandArgs, subcommandPos)
+			// Merge in already-parsed root globals
+			for k, v := range rootGlobals {
+				ctx.GlobalFlags[k] = v
+			}
+
+			return tempCmd.executeCompletion(ctx)
+		}
+
+		// Unknown subcommand at current level - show available subcommand names
+		return cmd.completeNestedSubcommandNames(currentSubcommands, partial), nil
 	}
 
 	return []string{}, nil
@@ -445,6 +485,60 @@ func (cmd *Command) completeSubcommandNames(partial string) []string {
 		nameLower := strings.ToLower(name)
 		if partialLower == "" || strings.HasPrefix(nameLower, partialLower) {
 			matches = append(matches, name)
+		}
+	}
+
+	return matches
+}
+
+// completeNestedSubcommandNames generates completions for nested subcommand names
+func (cmd *Command) completeNestedSubcommandNames(subcommands map[string]*Subcommand, partial string) []string {
+	var matches []string
+	partialLower := strings.ToLower(partial)
+
+	for name := range subcommands {
+		nameLower := strings.ToLower(name)
+		if partialLower == "" || strings.HasPrefix(nameLower, partialLower) {
+			matches = append(matches, name)
+		}
+	}
+
+	return matches
+}
+
+// completeFlagNames generates completions for flag names (used by temporary commands)
+func (cmd *Command) completeFlagNames(partial string) []string {
+	var matches []string
+	partialLower := strings.ToLower(partial)
+
+	for _, spec := range cmd.flags {
+		if spec.Hidden {
+			continue
+		}
+
+		for _, name := range spec.Names {
+			// Add -flag version
+			nameLower := strings.ToLower(name)
+			if partialLower == "" || partialLower == "-" || partialLower == "+" || strings.HasPrefix(nameLower, partialLower) {
+				matches = append(matches, name)
+			}
+
+			// Add +flag version (convert -flag to +flag)
+			if strings.HasPrefix(name, "-") {
+				plusVersion := "+" + name[1:]
+				plusLower := strings.ToLower(plusVersion)
+				if partialLower == "+" || strings.HasPrefix(plusLower, partialLower) {
+					matches = append(matches, plusVersion)
+				}
+			}
+		}
+	}
+
+	// Add built-in flags
+	builtins := []string{"-help", "--help", "-h", "-man", "-completion-script"}
+	for _, builtin := range builtins {
+		if partialLower == "" || partialLower == "-" || strings.HasPrefix(builtin, partialLower) {
+			matches = append(matches, builtin)
 		}
 	}
 

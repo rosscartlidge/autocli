@@ -18,6 +18,16 @@ type Subcommand struct {
 	Subcommands       map[string]*Subcommand // Nested subcommands (for multi-level commands like "git remote add")
 }
 
+// Builder is an interface for types that support the fluent subcommand API
+// Both CommandBuilder and SubcommandBuilder implement this to allow Done() to return a chainable type
+type Builder interface {
+	Subcommand(name string) *SubcommandBuilder
+	Done() Builder
+	Handler(h ClauseHandlerFunc) Builder
+	Example(command, description string) Builder
+	Build() *Command
+}
+
 // SubcommandParent is an interface for types that can have subcommands (CommandBuilder or SubcommandBuilder)
 type SubcommandParent interface {
 	addSubcommand(name string, subcmd *Subcommand)
@@ -79,7 +89,7 @@ func (sb *SubcommandBuilder) Author(author string) *SubcommandBuilder {
 }
 
 // Example adds a usage example
-func (sb *SubcommandBuilder) Example(command, description string) *SubcommandBuilder {
+func (sb *SubcommandBuilder) Example(command, description string) Builder {
 	sb.subcmd.Examples = append(sb.subcmd.Examples, Example{
 		Command:     command,
 		Description: description,
@@ -131,7 +141,7 @@ func (sb *SubcommandBuilder) Flag(names ...string) *SubcommandFlagBuilder {
 }
 
 // Handler sets the subcommand handler function
-func (sb *SubcommandBuilder) Handler(h ClauseHandlerFunc) *SubcommandBuilder {
+func (sb *SubcommandBuilder) Handler(h ClauseHandlerFunc) Builder {
 	sb.subcmd.Handler = h
 	return sb
 }
@@ -173,7 +183,7 @@ func (sb *SubcommandBuilder) Subcommand(name string) *SubcommandBuilder {
 }
 
 // Done finalizes the subcommand and returns to the parent builder
-func (sb *SubcommandBuilder) Done() *CommandBuilder {
+func (sb *SubcommandBuilder) Done() Builder {
 	// Validate subcommand: handler is required ONLY if there are no nested subcommands
 	hasNestedSubcommands := len(sb.subcmd.Subcommands) > 0
 	if sb.subcmd.Handler == nil && !hasNestedSubcommands {
@@ -188,8 +198,20 @@ func (sb *SubcommandBuilder) Done() *CommandBuilder {
 	// Add to parent using interface method
 	sb.parent.addSubcommand(sb.name, sb.subcmd)
 
-	// Always return root CommandBuilder (works for both direct and nested subcommands)
+	// If parent is a SubcommandBuilder, return it (for nested subcommands)
+	// Otherwise return root CommandBuilder
+	if parentSB, ok := sb.parent.(*SubcommandBuilder); ok {
+		return parentSB
+	}
 	return sb.root
+}
+
+// Build finalizes the command (delegates to root)
+func (sb *SubcommandBuilder) Build() *Command {
+	// First finalize this subcommand
+	sb.Done()
+	// Then build from root
+	return sb.root.Build()
 }
 
 // hasRootGlobalFlag checks if a flag name is defined as a global flag in the root command
@@ -204,6 +226,13 @@ func (cb *CommandBuilder) hasRootGlobalFlag(name string) bool {
 		}
 	}
 	return false
+}
+
+// Builder interface implementation for CommandBuilder
+
+// Done is a no-op for CommandBuilder (already at root) - returns self for fluent chaining
+func (cb *CommandBuilder) Done() Builder {
+	return cb
 }
 
 // SubcommandParent interface implementation for CommandBuilder

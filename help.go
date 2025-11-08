@@ -134,9 +134,7 @@ func (cmd *Command) generateHelpWithSubcommands() string {
 
 	// Subcommands
 	sb.WriteString("COMMANDS:\n")
-	for name, subcmd := range cmd.subcommands {
-		sb.WriteString(fmt.Sprintf("    %-15s %s\n", name, subcmd.Description))
-	}
+	cmd.formatSubcommands(&sb, cmd.subcommands, 0)
 	sb.WriteString("\n")
 
 	// Global options
@@ -284,4 +282,44 @@ func (cmd *Command) formatFlag(spec *FlagSpec) string {
 	}
 
 	return sb.String()
+}
+
+// formatSubcommands recursively formats subcommands with proper indentation for nested hierarchies
+func (cmd *Command) formatSubcommands(sb *strings.Builder, subcommands map[string]*Subcommand, depth int) {
+	// Calculate indentation based on depth
+	indent := strings.Repeat("  ", depth)
+
+	// Sort subcommand names for consistent output
+	names := make([]string, 0, len(subcommands))
+	for name := range subcommands {
+		names = append(names, name)
+	}
+	// Simple alphabetical sort using string comparison
+	for i := 0; i < len(names); i++ {
+		for j := i + 1; j < len(names); j++ {
+			if names[i] > names[j] {
+				names[i], names[j] = names[j], names[i]
+			}
+		}
+	}
+
+	// Format each subcommand
+	for _, name := range names {
+		subcmd := subcommands[name]
+
+		// Format the subcommand entry
+		prefix := indent + "    "
+		if depth > 0 {
+			// For nested subcommands, add a visual indicator
+			sb.WriteString(fmt.Sprintf("%s%-15s %s\n", prefix, name, subcmd.Description))
+		} else {
+			// Top-level subcommands
+			sb.WriteString(fmt.Sprintf("%s%-15s %s\n", prefix, name, subcmd.Description))
+		}
+
+		// Recursively format nested subcommands
+		if len(subcmd.Subcommands) > 0 {
+			cmd.formatSubcommands(sb, subcmd.Subcommands, depth+1)
+		}
+	}
 }

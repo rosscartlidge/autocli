@@ -38,7 +38,7 @@ func (cb *CommandBuilder) Author(author string) *CommandBuilder {
 }
 
 // Example adds a usage example
-func (cb *CommandBuilder) Example(command, description string) *CommandBuilder {
+func (cb *CommandBuilder) Example(command, description string) Builder {
 	cb.cmd.examples = append(cb.cmd.examples, Example{
 		Command:     command,
 		Description: description,
@@ -76,7 +76,7 @@ func (cb *CommandBuilder) Flag(names ...string) *FlagBuilder {
 }
 
 // Handler sets the clause handler function
-func (cb *CommandBuilder) Handler(h ClauseHandlerFunc) *CommandBuilder {
+func (cb *CommandBuilder) Handler(h ClauseHandlerFunc) Builder {
 	cb.cmd.handler = h
 	return cb
 }
