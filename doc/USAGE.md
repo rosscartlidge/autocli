@@ -9,11 +9,12 @@ A powerful, general-purpose Go package for building command-line applications wi
 3. [Core Concepts](#core-concepts)
 4. [Building Commands](#building-commands)
 5. [Subcommands](#subcommands)
-6. [Flag Configuration](#flag-configuration)
-7. [Completion System](#completion-system)
-8. [Advanced Features](#advanced-features)
-9. [Complete Examples](#complete-examples)
-10. [Best Practices](#best-practices)
+6. [Nested Subcommands](#nested-subcommands)
+7. [Flag Configuration](#flag-configuration)
+8. [Completion System](#completion-system)
+9. [Advanced Features](#advanced-features)
+10. [Complete Examples](#complete-examples)
+11. [Best Practices](#best-practices)
 
 ## Overview
 
@@ -22,6 +23,7 @@ A powerful, general-purpose Go package for building command-line applications wi
 - **Fluent Builder API**: Chain methods to configure commands and flags elegantly
 - **Fluent Arg() API**: Safe, index-free multi-argument configuration (recommended!)
 - **Subcommands**: Build distributed CLI tools like git, docker, kubectl
+- **Nested Subcommands**: Multi-level command hierarchies (git remote add, docker container exec)
 - **Clause-based Grouping**: Group flags into clauses separated by `+` or `-` for Boolean logic
 - **Intelligent Completion**: Context-aware bash completion with pluggable completers
 - **Multi-argument Flags**: Flags can take multiple arguments with per-argument completion
@@ -445,12 +447,24 @@ The handler receives a `Context` with:
 ```go
 type Context struct {
     Command        *Command
-    Subcommand     string                    // Name of the subcommand
+    SubcommandPath []string                  // Full path for nested subcommands (e.g., ["remote", "add"])
     Clauses        []Clause                  // Parsed clauses
     GlobalFlags    map[string]interface{}    // All global flags
     RemainingArgs  []string                  // Arguments after -- (literal)
     ExecutionError error
 }
+```
+
+**Helper Methods** (v2.1.0+):
+```go
+// Check if a specific subcommand path is active
+ctx.IsSubcommandPath("remote", "add")  // true if path is ["remote", "add"]
+
+// Check if any subcommand is active
+ctx.IsSubcommand("remote")             // true if path is ["remote"] or ["remote", ...]
+
+// Get the leaf subcommand name
+ctx.SubcommandName()                   // "add" for path ["remote", "add"]
 ```
 
 ### Accessing Values in Handler
@@ -796,6 +810,480 @@ $ datatool -verbose import -type csv -skip-errors data.csv
 $ datatool query -verbose -filter status eq active
 $ datatool -verbose query -filter status eq active
 # Both work identically!
+```
+
+## Nested Subcommands
+
+**NEW in v2.1.0**: Build multi-level command hierarchies like `git remote add` or `docker container exec`.
+
+### Overview
+
+Nested subcommands allow you to organize complex CLIs into hierarchical structures:
+
+```bash
+gitlike remote add origin https://...
+gitlike remote list
+gitlike branch delete -force old-feature
+gitlike config set user.name "John"
+```
+
+### Building Nested Hierarchies
+
+Chain `.Subcommand()` calls to create nested structures:
+
+```go
+cmd := cf.NewCommand("gitlike").
+    Version("1.0.0").
+    Description("A git-like CLI with nested subcommands").
+
+    // Root global flag
+    Flag("-verbose", "-v").Bool().Global().Help("Verbose output").Done().
+
+    // Top-level subcommand: remote
+    Subcommand("remote").
+        Description("Manage remote repositories").
+
+        // Nested subcommand: remote add
+        Subcommand("add").
+            Description("Add a new remote repository").
+            Flag("-fetch", "-f").Bool().Help("Fetch after adding").Done().
+            Handler(func(ctx *cf.Context) error {
+                fetch := ctx.GetBool("-fetch", false)
+                fmt.Println("Adding remote")
+                if fetch {
+                    fmt.Println("  Will fetch")
+                }
+                return nil
+            }).
+            Done().
+
+        // Nested subcommand: remote remove
+        Subcommand("remove").
+            Description("Remove a remote repository").
+            Handler(func(ctx *cf.Context) error {
+                fmt.Println("Removing remote")
+                return nil
+            }).
+            Done().
+
+        Done().  // Return to root CommandBuilder
+
+    // Another top-level subcommand
+    Subcommand("branch").
+        Description("Manage branches").
+
+        Subcommand("list").
+            Description("List all branches").
+            Handler(func(ctx *cf.Context) error {
+                fmt.Println("Listing branches")
+                return nil
+            }).
+            Done().
+
+        Done().
+
+    Build()
+```
+
+### Usage Examples
+
+```bash
+# Execute nested subcommands
+gitlike remote add origin https://github.com/user/repo.git
+gitlike remote remove origin
+gitlike branch list
+
+# Root globals work at any position
+gitlike -verbose remote add origin https://...
+gitlike remote add -verbose origin https://...
+gitlike remote -verbose add origin https://...
+
+# Help at each level
+gitlike -help                # Shows: remote, branch
+gitlike remote -help         # Shows: add, remove
+gitlike remote add -help     # Shows: specific flags for 'add'
+```
+
+### Handler Patterns
+
+#### Pattern 1: Single Handler with Path Checking
+
+Use `IsSubcommandPath()` to route within one handler:
+
+```go
+Handler(func(ctx *cf.Context) error {
+    switch {
+    case ctx.IsSubcommandPath("remote", "add"):
+        return handleRemoteAdd(ctx)
+    case ctx.IsSubcommandPath("remote", "remove"):
+        return handleRemoteRemove(ctx)
+    case ctx.IsSubcommandPath("branch", "list"):
+        return handleBranchList(ctx)
+    default:
+        return fmt.Errorf("unknown subcommand: %v", ctx.SubcommandPath)
+    }
+})
+```
+
+#### Pattern 2: Individual Handlers per Subcommand
+
+Define handlers directly on each nested subcommand:
+
+```go
+Subcommand("remote").
+    Subcommand("add").
+        Handler(func(ctx *cf.Context) error {
+            // Handle remote add
+            return nil
+        }).
+        Done().
+    Subcommand("remove").
+        Handler(func(ctx *cf.Context) error {
+            // Handle remote remove
+            return nil
+        }).
+        Done().
+    Done()
+```
+
+#### Pattern 3: Hybrid Approach
+
+Use individual handlers for leaf nodes, shared handlers for intermediate nodes:
+
+```go
+// Shared handler for all 'remote' commands
+func handleRemote(ctx *cf.Context) error {
+    // Common setup
+    verbose := ctx.GetBool("-verbose", false)
+
+    // Dispatch to specific handlers
+    switch ctx.SubcommandName() {
+    case "add":
+        return handleRemoteAdd(ctx, verbose)
+    case "remove":
+        return handleRemoteRemove(ctx, verbose)
+    case "list":
+        return handleRemoteList(ctx, verbose)
+    default:
+        return fmt.Errorf("unknown remote subcommand: %s", ctx.SubcommandName())
+    }
+}
+
+Subcommand("remote").
+    Handler(handleRemote).
+    Subcommand("add").Done().
+    Subcommand("remove").Done().
+    Subcommand("list").Done().
+    Done()
+```
+
+### Helper Methods
+
+**`IsSubcommandPath(path ...string) bool`**
+
+Check if the current subcommand path exactly matches:
+
+```go
+// User runs: gitlike remote add
+ctx.IsSubcommandPath("remote", "add")     // true
+ctx.IsSubcommandPath("remote")            // false (not exact match)
+ctx.IsSubcommandPath("remote", "remove")  // false
+```
+
+**`IsSubcommand(name string) bool`**
+
+Check if a subcommand is in the path at any level:
+
+```go
+// User runs: gitlike remote add
+ctx.IsSubcommand("remote")  // true (remote is in path)
+ctx.IsSubcommand("add")     // true (add is in path)
+ctx.IsSubcommand("branch")  // false
+
+// User runs: gitlike branch
+ctx.IsSubcommand("branch")  // true
+```
+
+**`SubcommandName() string`**
+
+Get the leaf (final) subcommand name:
+
+```go
+// User runs: gitlike remote add
+ctx.SubcommandName()  // "add"
+
+// User runs: gitlike branch
+ctx.SubcommandName()  // "branch"
+
+// User runs: gitlike (no subcommand)
+ctx.SubcommandName()  // ""
+```
+
+### Complete Example
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    cf "github.com/rosscartlidge/completionflags/v2"
+)
+
+func main() {
+    cmd := cf.NewCommand("gitlike").
+        Version("1.0.0").
+        Description("Git-like CLI with nested subcommands").
+        Flag("-verbose", "-v").Bool().Global().Help("Verbose output").Done().
+
+        Subcommand("remote").
+            Description("Manage remote repositories").
+
+            Subcommand("add").
+                Description("Add a remote").
+                Flag("-fetch", "-f").Bool().Help("Fetch after adding").Done().
+                Handler(handleCommand).
+                Done().
+
+            Subcommand("remove").
+                Description("Remove a remote").
+                Handler(handleCommand).
+                Done().
+
+            Subcommand("list").
+                Description("List remotes").
+                Handler(handleCommand).
+                Done().
+
+            Done().
+
+        Subcommand("branch").
+            Description("Manage branches").
+
+            Subcommand("list").
+                Description("List branches").
+                Flag("-all", "-a").Bool().Help("List all branches").Done().
+                Handler(handleCommand).
+                Done().
+
+            Subcommand("delete").
+                Description("Delete a branch").
+                Flag("-force", "-f").Bool().Help("Force deletion").Done().
+                Handler(handleCommand).
+                Done().
+
+            Done().
+
+        Build()
+
+    if err := cmd.Execute(os.Args[1:]); err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+}
+
+func handleCommand(ctx *cf.Context) error {
+    verbose := ctx.GetBool("-verbose", false)
+
+    switch {
+    case ctx.IsSubcommandPath("remote", "add"):
+        fetch := ctx.GetBool("-fetch", false)
+        fmt.Printf("Adding remote (fetch=%v, verbose=%v)\n", fetch, verbose)
+        return nil
+
+    case ctx.IsSubcommandPath("remote", "remove"):
+        fmt.Printf("Removing remote (verbose=%v)\n", verbose)
+        return nil
+
+    case ctx.IsSubcommandPath("remote", "list"):
+        fmt.Printf("Listing remotes (verbose=%v)\n", verbose)
+        return nil
+
+    case ctx.IsSubcommandPath("branch", "list"):
+        all := ctx.GetBool("-all", false)
+        fmt.Printf("Listing branches (all=%v, verbose=%v)\n", all, verbose)
+        return nil
+
+    case ctx.IsSubcommandPath("branch", "delete"):
+        force := ctx.GetBool("-force", false)
+        fmt.Printf("Deleting branch (force=%v, verbose=%v)\n", force, verbose)
+        return nil
+
+    default:
+        return fmt.Errorf("unknown subcommand path: %v", ctx.SubcommandPath)
+    }
+}
+```
+
+### Shell Completion for Nested Subcommands
+
+Completion works automatically at each level:
+
+```bash
+$ gitlike <TAB>
+remote  branch
+
+$ gitlike remote <TAB>
+add  remove  list
+
+$ gitlike remote add <TAB>
+-fetch  -f  -verbose  -v  -help  -man
+```
+
+### Help for Nested Subcommands
+
+Help is hierarchical:
+
+```bash
+# Root help shows top-level subcommands
+$ gitlike -help
+gitlike v1.0.0 - Git-like CLI with nested subcommands
+
+USAGE:
+    gitlike [OPTIONS] <COMMAND>
+
+COMMANDS:
+    branch          Manage branches
+      delete        Delete a branch
+      list          List branches
+    remote          Manage remote repositories
+      add           Add a remote
+      list          List remotes
+      remove        Remove a remote
+
+GLOBAL OPTIONS:
+    -verbose, -v    Verbose output
+
+# Intermediate level shows nested subcommands
+$ gitlike remote -help
+gitlike remote - Manage remote repositories
+
+COMMANDS:
+    add             Add a remote
+    list            List remotes
+    remove          Remove a remote
+
+# Leaf level shows specific flags
+$ gitlike remote add -help
+gitlike remote add - Add a remote
+
+OPTIONS:
+    -fetch, -f      Fetch after adding
+    -verbose, -v    Verbose output (global)
+```
+
+### Migration from v2.0 to v2.1
+
+**Breaking Change**: `Context.Subcommand` (string) → `Context.SubcommandPath` ([]string)
+
+**Before (v2.0)**:
+```go
+if ctx.Subcommand == "query" {
+    // Handle query
+}
+```
+
+**After (v2.1)**:
+```go
+// For simple subcommands
+if ctx.IsSubcommand("query") {
+    // Handle query
+}
+
+// For nested subcommands
+if ctx.IsSubcommandPath("remote", "add") {
+    // Handle remote add
+}
+
+// Or access directly
+if len(ctx.SubcommandPath) == 2 && ctx.SubcommandPath[0] == "remote" && ctx.SubcommandPath[1] == "add" {
+    // Handle remote add
+}
+```
+
+See [docs/MIGRATION_v2.0_to_v2.1.md](../docs/MIGRATION_v2.0_to_v2.1.md) for complete migration guide.
+
+### Best Practices for Nested Subcommands
+
+#### 1. Keep Hierarchies Shallow
+
+Prefer 2-3 levels maximum for usability:
+
+```bash
+# Good - 2 levels
+gitlike remote add
+
+# Good - 3 levels (if necessary)
+docker container network connect
+
+# Avoid - too deep
+app level1 level2 level3 level4  # Hard to remember
+```
+
+#### 2. Use Intermediate Nodes for Grouping Only
+
+Intermediate subcommands should not have positional arguments - only flags:
+
+```go
+// Good - leaf nodes have positionals
+Subcommand("remote").
+    Subcommand("add").
+        Handler(func(ctx *cf.Context) error {
+            // Positionals: name, url
+            return nil
+        }).
+        Done().
+    Done()
+
+// Avoid - intermediate node with positionals
+Subcommand("remote").
+    Handler(func(ctx *cf.Context) error {
+        // Positionals here conflict with nested subcommand names
+        return nil
+    }).
+    Subcommand("add").Done().
+    Done()
+```
+
+#### 3. Provide Help at All Levels
+
+Ensure each level has a description:
+
+```go
+Subcommand("remote").
+    Description("Manage remote repositories").  // Important!
+    Subcommand("add").
+        Description("Add a remote").            // Important!
+        Done().
+    Done()
+```
+
+#### 4. Use Consistent Naming
+
+Follow naming patterns from popular CLIs:
+
+```bash
+# git-style
+app remote add/remove/list
+app branch create/delete/list
+
+# docker-style
+app container start/stop/list
+app image build/push/pull
+
+# kubectl-style
+app get/describe/delete resource
+```
+
+#### 5. Root Globals Work Everywhere
+
+Root global flags can appear before or after any subcommand level:
+
+```bash
+app -verbose remote add ...
+app remote -verbose add ...
+app remote add -verbose ...
+# All equivalent!
 ```
 
 ### Best Practices for Subcommands
@@ -1855,11 +2343,11 @@ myapp -filter status eq <TAB>
 
 ```go
 type Context struct {
-    Command       *Command
-    Subcommand    string                    // Name of subcommand (empty for root)
-    Clauses       []Clause
-    GlobalFlags   map[string]interface{}
-    RemainingArgs []string                  // Arguments after -- (literal)
+    Command        *Command
+    SubcommandPath []string                  // Full path for nested subcommands (e.g., ["remote", "add"])
+    Clauses        []Clause
+    GlobalFlags    map[string]interface{}
+    RemainingArgs  []string                  // Arguments after -- (literal)
 }
 
 type Clause struct {
@@ -1867,6 +2355,11 @@ type Clause struct {
     Separator string
 }
 ```
+
+**Helper Methods** (v2.1.0+):
+- `ctx.IsSubcommandPath("remote", "add")` - Check exact path match
+- `ctx.IsSubcommand("remote")` - Check if subcommand is in path at any level
+- `ctx.SubcommandName()` - Get leaf subcommand name
 
 ---
 

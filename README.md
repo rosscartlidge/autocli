@@ -6,7 +6,8 @@ A powerful, general-purpose Go package for building sophisticated command-line a
 
 ## Features
 
-- **⚡ Subcommands** - Git/Docker/kubectl-style distributed commands with three-level flag scoping
+- **⚡ Nested Subcommands** - Multi-level command hierarchies (git remote add, docker container exec)
+- **🎯 Three-Level Flag Scoping** - Root global, subcommand global, and per-clause flags
 - **🔧 Fluent Builder API** - Chain methods to configure commands elegantly
 - **🎯 Fluent Arg() API** - Safe, index-free multi-argument configuration (NEW!)
 - **📋 Clause-based Grouping** - Boolean logic with `+`/`-` separators
@@ -158,6 +159,124 @@ myapp query -verbose -limit 20     # Root global flag after subcommand
 myapp import -file data.json       # Use import subcommand
 myapp -help                        # Shows all subcommands
 myapp query -help                  # Shows query-specific help
+```
+
+### Nested Subcommand Example
+
+Build multi-level command hierarchies like `git remote add` or `docker container exec`:
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    cf "github.com/rosscartlidge/completionflags/v2"
+)
+
+func main() {
+    cmd := cf.NewCommand("gitlike").
+        Version("1.0.0").
+        Description("A git-like CLI with nested subcommands").
+
+        // Root global flag (available everywhere)
+        Flag("-verbose", "-v").
+            Bool().
+            Global().
+            Help("Enable verbose output").
+            Done().
+
+        // Top-level subcommand: remote
+        Subcommand("remote").
+            Description("Manage remote repositories").
+
+            // Nested subcommand: remote add
+            Subcommand("add").
+                Description("Add a new remote repository").
+                Flag("-fetch", "-f").Bool().Help("Fetch after adding").Done().
+                Handler(func(ctx *cf.Context) error {
+                    fmt.Println("Adding remote repository")
+                    fetch := ctx.GetBool("-fetch", false)
+                    if fetch {
+                        fmt.Println("  Will fetch after adding")
+                    }
+                    return nil
+                }).
+                Done().
+
+            // Nested subcommand: remote list
+            Subcommand("list").
+                Description("List all remote repositories").
+                Handler(func(ctx *cf.Context) error {
+                    verbose := ctx.GetBool("-verbose", false)
+                    fmt.Println("Listing remotes")
+                    if verbose {
+                        fmt.Println("  origin\thttps://github.com/user/repo.git")
+                    } else {
+                        fmt.Println("  origin")
+                    }
+                    return nil
+                }).
+                Done().
+
+            Done().
+
+        // Top-level subcommand: branch
+        Subcommand("branch").
+            Description("Manage branches").
+
+            Subcommand("list").
+                Description("List all branches").
+                Flag("-all", "-a").Bool().Help("List all branches").Done().
+                Handler(func(ctx *cf.Context) error {
+                    all := ctx.GetBool("-all", false)
+                    fmt.Println("Listing branches")
+                    if all {
+                        fmt.Println("  Including remote branches")
+                    }
+                    return nil
+                }).
+                Done().
+
+            Done().
+
+        Build()
+
+    if err := cmd.Execute(os.Args[1:]); err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+}
+```
+
+**Usage:**
+```bash
+gitlike remote add origin https://github.com/user/repo.git
+gitlike remote add -fetch origin https://...   # With flag
+gitlike -verbose remote list                   # Root global before subcommand
+gitlike remote list -verbose                   # Root global after subcommand
+gitlike branch list -all                       # Nested subcommand with flag
+
+gitlike -help                # Shows top-level subcommands (remote, branch)
+gitlike remote -help         # Shows nested subcommands (add, list)
+gitlike remote add -help     # Shows help for specific nested command
+```
+
+**Handler Pattern:**
+```go
+Handler(func(ctx *cf.Context) error {
+    // Use IsSubcommandPath to check the full path
+    switch {
+    case ctx.IsSubcommandPath("remote", "add"):
+        return handleRemoteAdd(ctx)
+    case ctx.IsSubcommandPath("remote", "list"):
+        return handleRemoteList(ctx)
+    case ctx.IsSubcommandPath("branch", "list"):
+        return handleBranchList(ctx)
+    default:
+        return fmt.Errorf("unknown subcommand: %v", ctx.SubcommandPath)
+    }
+})
 ```
 
 ### Enable Bash Completion
@@ -322,6 +441,7 @@ See the `examples/` directory:
 
 - **[simple/](examples/simple/)** - Basic flag usage with completion
 - **[subcommand/](examples/subcommand/)** - Git-style subcommands with global flags
+- **[nested_subcommands/](examples/nested_subcommands/)** - Multi-level command hierarchies (git remote add, docker container exec)
 - **[subcommand_clauses/](examples/subcommand_clauses/)** - Subcommands with clause-based parsing
 - **[datatool/](examples/datatool/)** - Advanced multi-clause query tool with fluent Arg() API
 - **[remaining_args/](examples/remaining_args/)** - Unix `--` convention support
