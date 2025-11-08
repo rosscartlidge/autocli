@@ -86,7 +86,7 @@ type Clause struct {
 // Context is passed to handler with all parsed clauses
 type Context struct {
 	Command        *Command
-	Subcommand     string                    // Name of subcommand being executed (empty for root)
+	SubcommandPath []string                  // Path of nested subcommands (e.g., ["remote", "add"]). Empty for root.
 	Clauses        []Clause                  // All parsed clauses
 	GlobalFlags    map[string]interface{}    // Flags marked as global (apply to all clauses)
 	RemainingArgs  []string                  // Arguments after -- (everything after -- is literal)
@@ -217,6 +217,32 @@ func (ctx *Context) RequireDuration(name string) (time.Duration, error) {
 		return 0, fmt.Errorf("flag %s is not a time.Duration", name)
 	}
 	return d, nil
+}
+
+// IsSubcommand checks if the command is using a specific first-level subcommand
+func (ctx *Context) IsSubcommand(name string) bool {
+	return len(ctx.SubcommandPath) > 0 && ctx.SubcommandPath[0] == name
+}
+
+// IsSubcommandPath checks if the command matches a specific subcommand path
+func (ctx *Context) IsSubcommandPath(names ...string) bool {
+	if len(ctx.SubcommandPath) != len(names) {
+		return false
+	}
+	for i, name := range names {
+		if ctx.SubcommandPath[i] != name {
+			return false
+		}
+	}
+	return true
+}
+
+// SubcommandName returns the leaf subcommand name (last element of path), or empty string if no subcommand
+func (ctx *Context) SubcommandName() string {
+	if len(ctx.SubcommandPath) == 0 {
+		return ""
+	}
+	return ctx.SubcommandPath[len(ctx.SubcommandPath)-1]
 }
 
 // ClauseHandlerFunc processes all clauses

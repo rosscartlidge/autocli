@@ -58,7 +58,7 @@ func (cmd *Command) Execute(args []string) error {
 			return err
 		}
 
-		ctx.Subcommand = subcommandName
+		ctx.SubcommandPath = []string{subcommandName} // TODO: Update for nested subcommands
 
 		// Validate
 		if err := cmd.validateSubcommand(subcmd, ctx); err != nil {

@@ -361,7 +361,7 @@ func (fb *FlagBuilder) Done() *CommandBuilder {
 	if fb.sb != nil {
 		// Subcommand flag
 		fb.sb.subcmd.Flags = append(fb.sb.subcmd.Flags, fb.spec)
-		return fb.sb.parent
+		return fb.sb.root // Return root CommandBuilder for fluent chaining
 	}
 	// Command flag
 	fb.cb.cmd.flags = append(fb.cb.cmd.flags, fb.spec)

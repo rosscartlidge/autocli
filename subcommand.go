@@ -14,13 +14,22 @@ type Subcommand struct {
 	Flags             []*FlagSpec
 	Handler           ClauseHandlerFunc
 	Separators        []string
-	ClauseDescription string // Custom description for CLAUSES section (optional)
+	ClauseDescription string                 // Custom description for CLAUSES section (optional)
+	Subcommands       map[string]*Subcommand // Nested subcommands (for multi-level commands like "git remote add")
+}
+
+// SubcommandParent is an interface for types that can have subcommands (CommandBuilder or SubcommandBuilder)
+type SubcommandParent interface {
+	addSubcommand(name string, subcmd *Subcommand)
+	getRootGlobalFlags() []*FlagSpec
+	getCommandName() string
 }
 
 // SubcommandBuilder provides a fluent API for building subcommands
 type SubcommandBuilder struct {
 	name       string
-	parent     *CommandBuilder
+	parent     SubcommandParent // Can be *CommandBuilder or another *SubcommandBuilder
+	root       *CommandBuilder  // Reference to root CommandBuilder (for Done() to return)
 	subcmd     *Subcommand
 }
 
@@ -45,6 +54,7 @@ func (cb *CommandBuilder) Subcommand(name string) *SubcommandBuilder {
 	sb := &SubcommandBuilder{
 		name:   name,
 		parent: cb,
+		root:   cb, // Store reference to root CommandBuilder
 		subcmd: &Subcommand{
 			Name:       name,
 			Flags:      []*FlagSpec{},
@@ -92,9 +102,16 @@ func (sb *SubcommandBuilder) Separators(seps ...string) *SubcommandBuilder {
 // Flag starts defining a new flag for this subcommand
 func (sb *SubcommandBuilder) Flag(names ...string) *SubcommandFlagBuilder {
 	// Check for conflicts with root global flags
+	rootGlobals := sb.parent.getRootGlobalFlags()
 	for _, name := range names {
-		if sb.parent.hasRootGlobalFlag(name) {
-			panic(fmt.Sprintf("subcommand %q flag %s conflicts with root global flag", sb.name, name))
+		for _, spec := range rootGlobals {
+			if spec.Scope == ScopeGlobal {
+				for _, globalName := range spec.Names {
+					if globalName == name {
+						panic(fmt.Sprintf("subcommand %q flag %s conflicts with root global flag", sb.name, name))
+					}
+				}
+			}
 		}
 	}
 
@@ -119,11 +136,48 @@ func (sb *SubcommandBuilder) Handler(h ClauseHandlerFunc) *SubcommandBuilder {
 	return sb
 }
 
-// Done finalizes the subcommand and returns to the command builder
+// Subcommand creates a nested subcommand (for multi-level commands like "git remote add")
+func (sb *SubcommandBuilder) Subcommand(name string) *SubcommandBuilder {
+	// Validate subcommand name
+	if strings.HasPrefix(name, "-") || strings.HasPrefix(name, "+") {
+		panic(fmt.Sprintf("nested subcommand name cannot start with - or +: %s", name))
+	}
+	if name == "" {
+		panic("nested subcommand name cannot be empty")
+	}
+
+	// Initialize nested subcommands map if needed
+	if sb.subcmd.Subcommands == nil {
+		sb.subcmd.Subcommands = make(map[string]*Subcommand)
+	}
+
+	// Check for duplicate subcommand names
+	if _, exists := sb.subcmd.Subcommands[name]; exists {
+		panic(fmt.Sprintf("nested subcommand %q already defined in %q", name, sb.name))
+	}
+
+	// Create nested subcommand builder with THIS subcommand as parent
+	nested := &SubcommandBuilder{
+		name:   name,
+		parent: sb,      // Parent is another SubcommandBuilder!
+		root:   sb.root, // Pass through root CommandBuilder reference
+		subcmd: &Subcommand{
+			Name:       name,
+			Flags:      []*FlagSpec{},
+			Separators: sb.subcmd.Separators, // Inherit separators from parent
+			Examples:   []Example{},
+		},
+	}
+
+	return nested
+}
+
+// Done finalizes the subcommand and returns to the parent builder
 func (sb *SubcommandBuilder) Done() *CommandBuilder {
-	// Validate subcommand
-	if sb.subcmd.Handler == nil {
-		panic(fmt.Sprintf("subcommand %q requires a handler", sb.name))
+	// Validate subcommand: handler is required ONLY if there are no nested subcommands
+	hasNestedSubcommands := len(sb.subcmd.Subcommands) > 0
+	if sb.subcmd.Handler == nil && !hasNestedSubcommands {
+		panic(fmt.Sprintf("subcommand %q requires a handler (or define nested subcommands)", sb.name))
 	}
 
 	// Validate positional arguments
@@ -131,10 +185,11 @@ func (sb *SubcommandBuilder) Done() *CommandBuilder {
 		panic(fmt.Sprintf("subcommand %q positional validation failed: %v", sb.name, err))
 	}
 
-	// Add to parent command
-	sb.parent.cmd.subcommands[sb.name] = sb.subcmd
+	// Add to parent using interface method
+	sb.parent.addSubcommand(sb.name, sb.subcmd)
 
-	return sb.parent
+	// Always return root CommandBuilder (works for both direct and nested subcommands)
+	return sb.root
 }
 
 // hasRootGlobalFlag checks if a flag name is defined as a global flag in the root command
@@ -149,6 +204,43 @@ func (cb *CommandBuilder) hasRootGlobalFlag(name string) bool {
 		}
 	}
 	return false
+}
+
+// SubcommandParent interface implementation for CommandBuilder
+
+// addSubcommand adds a subcommand to the root command
+func (cb *CommandBuilder) addSubcommand(name string, subcmd *Subcommand) {
+	cb.cmd.subcommands[name] = subcmd
+}
+
+// getRootGlobalFlags returns the root command's global flags
+func (cb *CommandBuilder) getRootGlobalFlags() []*FlagSpec {
+	return cb.cmd.rootGlobalFlags()
+}
+
+// getCommandName returns the root command name
+func (cb *CommandBuilder) getCommandName() string {
+	return cb.cmd.name
+}
+
+// SubcommandParent interface implementation for SubcommandBuilder
+
+// addSubcommand adds a nested subcommand to this subcommand
+func (sb *SubcommandBuilder) addSubcommand(name string, subcmd *Subcommand) {
+	if sb.subcmd.Subcommands == nil {
+		sb.subcmd.Subcommands = make(map[string]*Subcommand)
+	}
+	sb.subcmd.Subcommands[name] = subcmd
+}
+
+// getRootGlobalFlags delegates to the parent to get root global flags
+func (sb *SubcommandBuilder) getRootGlobalFlags() []*FlagSpec {
+	return sb.parent.getRootGlobalFlags()
+}
+
+// getCommandName delegates to the parent to get the command name
+func (sb *SubcommandBuilder) getCommandName() string {
+	return sb.parent.getCommandName()
 }
 
 // validateSubcommandPositionals validates positional argument constraints for a subcommand
