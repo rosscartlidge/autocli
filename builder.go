@@ -215,12 +215,6 @@ func (fb *FlagBuilder) Time() *FlagBuilder {
 	return fb.Args(1).ArgType(0, ArgTime).ArgName(0, "TIME")
 }
 
-// Bind binds the flag to a variable
-func (fb *FlagBuilder) Bind(ptr interface{}) *FlagBuilder {
-	fb.spec.Pointer = ptr
-	return fb
-}
-
 // Required marks the flag as required
 func (fb *FlagBuilder) Required() *FlagBuilder {
 	fb.spec.Required = true

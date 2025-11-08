@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // Version is the completionflags library version
-const Version = "1.0.0"
+const Version = "2.0.0"
 
 // Command represents a CLI command with flags, clauses, and completion support
 type Command struct {
@@ -35,9 +36,8 @@ type FlagSpec struct {
 	ArgTypes      []ArgType     // Type of each argument
 	ArgCompleters []Completer   // Completion strategy for each argument
 
-	// Binding
-	Pointer     interface{}   // Where to store parsed value
-	IsSlice     bool          // Accumulate multiple values
+	// Accumulation
+	IsSlice     bool          // Accumulate multiple values (for Accumulate() method)
 
 	// Positional arguments
 	IsVariadic  bool          // Consumes all remaining positional args (must be last)
@@ -100,6 +100,123 @@ type deferredValue struct {
 	spec        *FlagSpec
 	isGlobal    bool
 	clauseIndex int // For local flags, which clause
+}
+
+// Context helper methods for type-safe flag value extraction
+
+// GetBool retrieves a boolean flag value from GlobalFlags, returning defaultValue if not found or nil
+func (ctx *Context) GetBool(name string, defaultValue bool) bool {
+	if v, ok := ctx.GlobalFlags[name]; ok && v != nil {
+		if b, ok := v.(bool); ok {
+			return b
+		}
+	}
+	return defaultValue
+}
+
+// GetString retrieves a string flag value from GlobalFlags, returning defaultValue if not found or nil
+func (ctx *Context) GetString(name string, defaultValue string) string {
+	if v, ok := ctx.GlobalFlags[name]; ok && v != nil {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return defaultValue
+}
+
+// GetInt retrieves an int flag value from GlobalFlags, returning defaultValue if not found or nil
+func (ctx *Context) GetInt(name string, defaultValue int) int {
+	if v, ok := ctx.GlobalFlags[name]; ok && v != nil {
+		if i, ok := v.(int); ok {
+			return i
+		}
+	}
+	return defaultValue
+}
+
+// GetFloat retrieves a float64 flag value from GlobalFlags, returning defaultValue if not found or nil
+func (ctx *Context) GetFloat(name string, defaultValue float64) float64 {
+	if v, ok := ctx.GlobalFlags[name]; ok && v != nil {
+		if f, ok := v.(float64); ok {
+			return f
+		}
+	}
+	return defaultValue
+}
+
+// GetDuration retrieves a time.Duration flag value from GlobalFlags, returning defaultValue if not found or nil
+func (ctx *Context) GetDuration(name string, defaultValue time.Duration) time.Duration {
+	if v, ok := ctx.GlobalFlags[name]; ok && v != nil {
+		if d, ok := v.(time.Duration); ok {
+			return d
+		}
+	}
+	return defaultValue
+}
+
+// RequireString retrieves a string flag value from GlobalFlags, returning an error if not found
+func (ctx *Context) RequireString(name string) (string, error) {
+	v, ok := ctx.GlobalFlags[name]
+	if !ok || v == nil {
+		return "", fmt.Errorf("required flag %s not provided", name)
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("flag %s is not a string", name)
+	}
+	return s, nil
+}
+
+// RequireInt retrieves an int flag value from GlobalFlags, returning an error if not found
+func (ctx *Context) RequireInt(name string) (int, error) {
+	v, ok := ctx.GlobalFlags[name]
+	if !ok || v == nil {
+		return 0, fmt.Errorf("required flag %s not provided", name)
+	}
+	i, ok := v.(int)
+	if !ok {
+		return 0, fmt.Errorf("flag %s is not an int", name)
+	}
+	return i, nil
+}
+
+// RequireBool retrieves a bool flag value from GlobalFlags, returning an error if not found
+func (ctx *Context) RequireBool(name string) (bool, error) {
+	v, ok := ctx.GlobalFlags[name]
+	if !ok || v == nil {
+		return false, fmt.Errorf("required flag %s not provided", name)
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return false, fmt.Errorf("flag %s is not a bool", name)
+	}
+	return b, nil
+}
+
+// RequireFloat retrieves a float64 flag value from GlobalFlags, returning an error if not found
+func (ctx *Context) RequireFloat(name string) (float64, error) {
+	v, ok := ctx.GlobalFlags[name]
+	if !ok || v == nil {
+		return 0, fmt.Errorf("required flag %s not provided", name)
+	}
+	f, ok := v.(float64)
+	if !ok {
+		return 0, fmt.Errorf("flag %s is not a float64", name)
+	}
+	return f, nil
+}
+
+// RequireDuration retrieves a time.Duration flag value from GlobalFlags, returning an error if not found
+func (ctx *Context) RequireDuration(name string) (time.Duration, error) {
+	v, ok := ctx.GlobalFlags[name]
+	if !ok || v == nil {
+		return 0, fmt.Errorf("required flag %s not provided", name)
+	}
+	d, ok := v.(time.Duration)
+	if !ok {
+		return 0, fmt.Errorf("flag %s is not a time.Duration", name)
+	}
+	return d, nil
 }
 
 // ClauseHandlerFunc processes all clauses

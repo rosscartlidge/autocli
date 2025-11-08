@@ -680,12 +680,6 @@ func (sfb *SubcommandFlagBuilder) ArgCompleter(index int, c Completer) *Subcomma
 	return sfb
 }
 
-// Bind binds the flag to a variable
-func (sfb *SubcommandFlagBuilder) Bind(ptr interface{}) *SubcommandFlagBuilder {
-	sfb.spec.Pointer = ptr
-	return sfb
-}
-
 // Required marks the flag as required
 func (sfb *SubcommandFlagBuilder) Required() *SubcommandFlagBuilder {
 	sfb.spec.Required = true

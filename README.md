@@ -1,18 +1,19 @@
 # completionflags
 
-A powerful, general-purpose Go package for building sophisticated command-line applications with advanced flag parsing, clause-based argument grouping, and intelligent bash completion.
+A powerful, general-purpose Go package for building sophisticated command-line applications with **git/docker/kubectl-style subcommands**, advanced flag parsing, clause-based argument grouping, and intelligent bash completion.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/rosscartlidge/completionflags.svg)](https://pkg.go.dev/github.com/rosscartlidge/completionflags)
 
 ## Features
 
+- **⚡ Subcommands** - Git/Docker/kubectl-style distributed commands with three-level flag scoping
 - **🔧 Fluent Builder API** - Chain methods to configure commands elegantly
 - **🎯 Fluent Arg() API** - Safe, index-free multi-argument configuration (NEW!)
 - **📋 Clause-based Grouping** - Boolean logic with `+`/`-` separators
 - **✨ Smart Completion** - Context-aware with helpful pattern hints
 - **🔍 Pattern Hints** - Shows `/path/<*.json>` when no files match
 - **🎨 Multi-argument Flags** - Per-argument types and completers
-- **🌐 Global vs Local Scope** - Command-wide or per-clause flags
+- **🌐 Global vs Local Scope** - Root, subcommand, and per-clause flags
 - **📖 Auto-generated Help** - `-help` and `-man` pages
 - **🚀 Universal Completion** - Single script for all programs
 - **0️⃣ Zero Dependencies** - Pure Go stdlib
@@ -71,6 +72,92 @@ func main() {
         os.Exit(1)
     }
 }
+```
+
+### Subcommand Example
+
+Build git/docker/kubectl-style commands with distributed subcommands:
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    cf "github.com/rosscartlidge/completionflags"
+)
+
+func main() {
+    cmd := cf.NewCommand("myapp").
+        Version("1.0.0").
+        Description("Multi-command application").
+
+        // Root-level global flag (available to all subcommands)
+        Flag("-verbose", "-v").
+            Bool().
+            Global().
+            Help("Enable verbose output").
+            Done().
+
+        // 'query' subcommand
+        Subcommand("query").
+            Description("Query data with filters").
+
+            // Subcommand-level flag
+            Flag("-limit").
+                Int().
+                Default(10).
+                Help("Limit results").
+                Done().
+
+            Handler(func(ctx *cf.Context) error {
+                verbose := ctx.GlobalFlags["-verbose"].(bool)
+                limit := ctx.GlobalFlags["-limit"].(int)
+
+                if verbose {
+                    fmt.Printf("Querying with limit=%d\n", limit)
+                }
+                // Query logic here
+                return nil
+            }).
+            Done().
+
+        // 'import' subcommand
+        Subcommand("import").
+            Description("Import data from file").
+
+            Flag("-file", "-f").
+                String().
+                Required().
+                FilePattern("*.{json,csv}").
+                Help("File to import").
+                Done().
+
+            Handler(func(ctx *cf.Context) error {
+                file := ctx.GlobalFlags["-file"].(string)
+                fmt.Printf("Importing from %s\n", file)
+                // Import logic here
+                return nil
+            }).
+            Done().
+
+        Build()
+
+    if err := cmd.Execute(os.Args[1:]); err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+}
+```
+
+**Usage:**
+```bash
+myapp query -limit 20              # Use query subcommand
+myapp -verbose query -limit 20     # Root global flag before subcommand
+myapp query -verbose -limit 20     # Root global flag after subcommand
+myapp import -file data.json       # Use import subcommand
+myapp -help                        # Shows all subcommands
+myapp query -help                  # Shows query-specific help
 ```
 
 ### Enable Bash Completion
@@ -234,11 +321,23 @@ func (mc *MyCompleter) Complete(ctx cf.CompletionContext) ([]string, error) {
 See the `examples/` directory:
 
 - **[simple/](examples/simple/)** - Basic flag usage with completion
+- **[subcommand/](examples/subcommand/)** - Git-style subcommands with global flags
+- **[subcommand_clauses/](examples/subcommand_clauses/)** - Subcommands with clause-based parsing
 - **[datatool/](examples/datatool/)** - Advanced multi-clause query tool with fluent Arg() API
+- **[remaining_args/](examples/remaining_args/)** - Unix `--` convention support
 
 ### Running Examples
 
 ```bash
+# Subcommand example
+cd examples/subcommand
+go build
+./subcommand -help                 # See all subcommands
+./subcommand list -help            # Subcommand-specific help
+eval "$(./subcommand -completion-script)"
+./subcommand list -verbose         # Run with flags
+
+# Advanced datatool example
 cd examples/datatool
 go build
 ./datatool -help
@@ -254,7 +353,12 @@ eval "$(./datatool -completion-script)"
 cf.NewCommand("name").
     Version("1.0.0").
     Description("...").
-    Flag(...).
+    Flag(...).                        // Root command flag
+    Subcommand("subcmd").             // Add subcommand
+        Description("...").
+        Flag(...).                    // Subcommand-specific flag
+        Handler(...).
+        Done().
     Handler(func(ctx *cf.Context) error { ... }).
     Build()
 ```
@@ -270,8 +374,8 @@ Flag("-name", "-n").
     .Arg("NAME").Done()              // Multi-arg (fluent API)
 
     // Scope
-    .Global()                        // Command-wide
-    .Local()                         // Per-clause
+    .Global()                        // Root global (all subcommands) or subcommand global
+    .Local()                         // Per-clause only
 
     // Values
     .Bind(&variable)                 // Bind to variable
@@ -287,6 +391,20 @@ Flag("-name", "-n").
     // Documentation
     .Help("Description")             // Help text
     .Done()                          // Finalize
+```
+
+### Subcommand Builder
+
+```go
+Subcommand("name").
+    Description("...")               // Subcommand description
+    Flag(...).Done()                 // Subcommand-specific flag
+    Handler(func(ctx *cf.Context) error {
+        // ctx.GlobalFlags - root and subcommand globals
+        // ctx.Clauses - clause data
+        return nil
+    })
+    Done()                           // Return to command builder
 ```
 
 ### Handler Context

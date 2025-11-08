@@ -2,7 +2,6 @@ package completionflags
 
 import (
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -66,11 +65,6 @@ func (cmd *Command) Execute(args []string) error {
 			return err
 		}
 
-		// Bind values
-		if err := cmd.bindSubcommandValues(subcmd, ctx); err != nil {
-			return err
-		}
-
 		// Execute subcommand handler
 		return subcmd.Handler(ctx)
 	}
@@ -90,11 +84,6 @@ func (cmd *Command) Execute(args []string) error {
 
 	// Validate
 	if err := cmd.validate(ctx); err != nil {
-		return err
-	}
-
-	// Bind values to pointers
-	if err := cmd.bindValues(ctx); err != nil {
 		return err
 	}
 
@@ -479,49 +468,6 @@ func (cmd *Command) validate(ctx *Context) error {
 	return nil
 }
 
-// bindValues binds parsed values to pointers using reflection
-func (cmd *Command) bindValues(ctx *Context) error {
-	for _, spec := range cmd.flags {
-		if spec.Pointer == nil {
-			continue
-		}
-
-		ptr := reflect.ValueOf(spec.Pointer)
-		if ptr.Kind() != reflect.Ptr {
-			continue
-		}
-
-		elem := ptr.Elem()
-		if !elem.CanSet() {
-			continue
-		}
-
-		var value interface{}
-		var exists bool
-
-		if spec.Scope == ScopeGlobal {
-			value, exists = ctx.GlobalFlags[spec.Names[0]]
-		} else {
-			// For local scope, bind from first clause (or could be last, user's choice)
-			// TODO: This might need to be configurable
-			if len(ctx.Clauses) > 0 {
-				value, exists = ctx.Clauses[0].Flags[spec.Names[0]]
-			}
-		}
-
-		if !exists {
-			continue
-		}
-
-		// Set the value using reflection
-		if err := setValue(elem, value); err != nil {
-			return fmt.Errorf("binding %s: %w", spec.Names[0], err)
-		}
-	}
-
-	return nil
-}
-
 // matchPositionals matches positional arguments to positional flag specs
 func (cmd *Command) matchPositionals(ctx *Context) error {
 	positionalSpecs := cmd.positionalFlags()
@@ -610,74 +556,6 @@ func (cmd *Command) matchPositionalsToSpecs(specs []*FlagSpec, args []string, ta
 	}
 
 	return argIndex, nil
-}
-
-// setValue sets a reflect.Value from an interface{} value
-func setValue(target reflect.Value, value interface{}) error {
-	if value == nil {
-		return nil
-	}
-
-	valueReflect := reflect.ValueOf(value)
-
-	// Handle direct assignment if types match
-	if valueReflect.Type().AssignableTo(target.Type()) {
-		target.Set(valueReflect)
-		return nil
-	}
-
-	// Handle type conversions
-	switch target.Kind() {
-	case reflect.String:
-		if v, ok := value.(string); ok {
-			target.SetString(v)
-			return nil
-		}
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		// Special case: time.Duration is an int64
-		if target.Type() == reflect.TypeOf(time.Duration(0)) {
-			if v, ok := value.(time.Duration); ok {
-				target.Set(reflect.ValueOf(v))
-				return nil
-			}
-		}
-		if v, ok := value.(int); ok {
-			target.SetInt(int64(v))
-			return nil
-		}
-	case reflect.Float32, reflect.Float64:
-		if v, ok := value.(float64); ok {
-			target.SetFloat(v)
-			return nil
-		}
-	case reflect.Bool:
-		if v, ok := value.(bool); ok {
-			target.SetBool(v)
-			return nil
-		}
-	case reflect.Struct:
-		// Special case: time.Time
-		if target.Type() == reflect.TypeOf(time.Time{}) {
-			if v, ok := value.(time.Time); ok {
-				target.Set(reflect.ValueOf(v))
-				return nil
-			}
-		}
-	case reflect.Slice:
-		// Handle slice types
-		if slice, ok := value.([]interface{}); ok {
-			newSlice := reflect.MakeSlice(target.Type(), len(slice), len(slice))
-			for i, item := range slice {
-				if err := setValue(newSlice.Index(i), item); err != nil {
-					return err
-				}
-			}
-			target.Set(newSlice)
-			return nil
-		}
-	}
-
-	return fmt.Errorf("cannot assign %T to %v", value, target.Type())
 }
 
 // parseRootGlobalFlags parses only the root global flags and returns remaining args
@@ -788,40 +666,4 @@ func (cmd *Command) validateSubcommand(subcmd *Subcommand, ctx *Context) error {
 	}
 
 	return tempCmd.validate(ctx)
-}
-
-// bindSubcommandValues binds parsed values to variables for a subcommand
-func (cmd *Command) bindSubcommandValues(subcmd *Subcommand, ctx *Context) error {
-	// First bind root global flags
-	for _, spec := range cmd.flags {
-		if spec.Scope != ScopeGlobal || spec.Pointer == nil {
-			continue
-		}
-
-		ptr := reflect.ValueOf(spec.Pointer)
-		if ptr.Kind() != reflect.Ptr {
-			continue
-		}
-
-		elem := ptr.Elem()
-		if !elem.CanSet() {
-			continue
-		}
-
-		value, exists := ctx.GlobalFlags[spec.Names[0]]
-		if !exists {
-			continue
-		}
-
-		if err := setValue(elem, value); err != nil {
-			return fmt.Errorf("binding root global %s: %w", spec.Names[0], err)
-		}
-	}
-
-	// Then bind subcommand flags
-	tempCmd := &Command{
-		flags: subcmd.Flags,
-	}
-
-	return tempCmd.bindValues(ctx)
 }
