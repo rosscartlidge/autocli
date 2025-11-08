@@ -63,6 +63,18 @@ func (cmd *Command) GenerateManPage() string {
 		sb.WriteString("\n")
 	}
 
+	// COMMANDS section (subcommands)
+	if len(cmd.subcommands) > 0 {
+		sb.WriteString(".SH COMMANDS\n")
+		for name, subcmd := range cmd.subcommands {
+			sb.WriteString(".TP\n")
+			sb.WriteString(fmt.Sprintf(".B %s\n", escapeGroff(name)))
+			if subcmd.Description != "" {
+				sb.WriteString(fmt.Sprintf("%s\n", escapeGroff(subcmd.Description)))
+			}
+		}
+	}
+
 	// ARGUMENTS section (positional)
 	if len(positionals) > 0 {
 		sb.WriteString(".SH ARGUMENTS\n")
