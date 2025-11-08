@@ -428,7 +428,9 @@ func (cmd *Command) completeWithSubcommands(args []string, pos int) ([]string, e
 
 			// Complete using subcommand context (remaining args after subcommand path)
 			subcommandArgs := remaining[argIndex:]
-			subcommandPos := remainingPos - argIndex
+			// subcommandPos needs +1 because analyzeCompletionContext expects COMP_WORDS-style
+			// indexing where position 0 is the command name (in this case, the subcommand name)
+			subcommandPos := remainingPos - argIndex + 1
 
 			ctx := tempCmd.analyzeCompletionContext(subcommandArgs, subcommandPos)
 			// Merge in already-parsed root globals
