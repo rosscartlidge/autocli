@@ -678,7 +678,7 @@ package main
 import (
     "fmt"
     "os"
-    cf "github.com/rosscartlidge/completionflags"
+    cf "github.com/rosscartlidge/autocli/v3"
 )
 
 func main() {

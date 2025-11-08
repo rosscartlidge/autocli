@@ -40,7 +40,7 @@ var verbose bool
 Flag("-verbose").Bind(&verbose).Bool().Done()
 ```
 
-This seems convenient for simple cases, but completionflags is not a simple flag parser.
+This seems convenient for simple cases, but autocli is not a simple flag parser.
 
 ### Why completionflags is Different
 

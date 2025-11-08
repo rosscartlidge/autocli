@@ -1,8 +1,10 @@
-# completionflags
+# autocli
 
-A powerful, general-purpose Go package for building sophisticated command-line applications with **git/docker/kubectl-style subcommands**, advanced flag parsing, clause-based argument grouping, and intelligent bash completion.
+A powerful, automatic CLI framework for Go that builds sophisticated command-line applications with **git/docker/kubectl-style subcommands**, advanced flag parsing, clause-based argument grouping, auto-generated help/man pages, and intelligent bash completion.
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/rosscartlidge/completionflags.svg)](https://pkg.go.dev/github.com/rosscartlidge/completionflags)
+> **Note**: Renamed from `completionflags` to better reflect the comprehensive feature set. This is v3.0.0 with a new module path.
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/rosscartlidge/autocli.svg)](https://pkg.go.dev/github.com/rosscartlidge/autocli)
 
 ## Features
 
@@ -24,7 +26,7 @@ A powerful, general-purpose Go package for building sophisticated command-line a
 ### Installation
 
 ```bash
-go get github.com/rosscartlidge/completionflags
+go get github.com/rosscartlidge/autocli/v3
 ```
 
 ### Simple Example
@@ -35,7 +37,7 @@ package main
 import (
     "fmt"
     "os"
-    cf "github.com/rosscartlidge/completionflags"
+    cf "github.com/rosscartlidge/autocli/v3"
 )
 
 func main() {
@@ -85,7 +87,7 @@ package main
 import (
     "fmt"
     "os"
-    cf "github.com/rosscartlidge/completionflags"
+    cf "github.com/rosscartlidge/autocli/v3"
 )
 
 func main() {
@@ -171,7 +173,7 @@ package main
 import (
     "fmt"
     "os"
-    cf "github.com/rosscartlidge/completionflags/v2"
+    cf "github.com/rosscartlidge/autocli/v3"
 )
 
 func main() {

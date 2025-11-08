@@ -1,4 +1,4 @@
-# completionflags - Comprehensive Usage Guide
+# autocli - Comprehensive Usage Guide
 
 A powerful, general-purpose Go package for building command-line applications with advanced flag parsing, clause-based argument grouping, and intelligent bash completion.
 
@@ -56,7 +56,7 @@ package main
 import (
     "fmt"
     "os"
-    cf "github.com/rosscartlidge/completionflags"
+    cf "github.com/rosscartlidge/autocli/v3"
 )
 
 func main() {
@@ -609,7 +609,7 @@ package main
 import (
     "fmt"
     "os"
-    cf "github.com/rosscartlidge/completionflags"
+    cf "github.com/rosscartlidge/autocli/v3"
 )
 
 func main() {
@@ -1027,7 +1027,7 @@ package main
 import (
     "fmt"
     "os"
-    cf "github.com/rosscartlidge/completionflags/v2"
+    cf "github.com/rosscartlidge/autocli/v3"
 )
 
 func main() {
@@ -1894,7 +1894,7 @@ package main
 import (
     "fmt"
     "os"
-    cf "github.com/rosscartlidge/completionflags"
+    cf "github.com/rosscartlidge/autocli/v3"
 )
 
 type Config struct {
@@ -1958,7 +1958,7 @@ package main
 import (
     "fmt"
     "os"
-    cf "github.com/rosscartlidge/completionflags"
+    cf "github.com/rosscartlidge/autocli/v3"
 )
 
 func main() {

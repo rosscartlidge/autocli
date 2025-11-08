@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
-	cf "github.com/rosscartlidge/completionflags/v2"
+	cf "github.com/rosscartlidge/autocli/v3"
 )
 
 func main() {

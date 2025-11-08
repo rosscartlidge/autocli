@@ -1,6 +1,6 @@
 # Migration Guide: v2.0.0 to v2.1.0
 
-This guide helps you migrate your code from completionflags v2.0.0 to v2.1.0.
+This guide helps you migrate your code from autocli v2.0.0 to v2.1.0.
 
 ## What's New in v2.1.0
 
@@ -26,7 +26,7 @@ We added helper methods to make migration easier. This is the recommended approa
 
 **Before (v2.0.0):**
 ```go
-func handler(ctx *completionflags.Context) error {
+func handler(ctx *autocli.Context) error {
     if ctx.Subcommand == "query" {
         // Handle query
     } else if ctx.Subcommand == "insert" {
@@ -38,7 +38,7 @@ func handler(ctx *completionflags.Context) error {
 
 **After (v2.1.0):**
 ```go
-func handler(ctx *completionflags.Context) error {
+func handler(ctx *autocli.Context) error {
     if ctx.IsSubcommand("query") {
         // Handle query
     } else if ctx.IsSubcommand("insert") {
@@ -56,7 +56,7 @@ If you need to access the subcommand path directly:
 
 **Before (v2.0.0):**
 ```go
-func handler(ctx *completionflags.Context) error {
+func handler(ctx *autocli.Context) error {
     switch ctx.Subcommand {
     case "query":
         return handleQuery(ctx)
@@ -70,7 +70,7 @@ func handler(ctx *completionflags.Context) error {
 
 **After (v2.1.0):**
 ```go
-func handler(ctx *completionflags.Context) error {
+func handler(ctx *autocli.Context) error {
     subcommand := ctx.SubcommandName() // Gets the leaf subcommand
     switch subcommand {
     case "query":
@@ -109,10 +109,10 @@ if len(ctx.SubcommandPath) > 0 {
 
 **Before (v2.0.0):**
 ```go
-cmd := completionflags.NewCommand("myapp").
+cmd := autocli.NewCommand("myapp").
     Subcommand("status").Description("Show status").Done().
     Subcommand("start").Description("Start service").Done().
-    Handler(func(ctx *completionflags.Context) error {
+    Handler(func(ctx *autocli.Context) error {
         switch ctx.Subcommand {
         case "status":
             fmt.Println("Status: running")
@@ -126,10 +126,10 @@ cmd := completionflags.NewCommand("myapp").
 
 **After (v2.1.0):**
 ```go
-cmd := completionflags.NewCommand("myapp").
+cmd := autocli.NewCommand("myapp").
     Subcommand("status").Description("Show status").Done().
     Subcommand("start").Description("Start service").Done().
-    Handler(func(ctx *completionflags.Context) error {
+    Handler(func(ctx *autocli.Context) error {
         switch {
         case ctx.IsSubcommand("status"):
             fmt.Println("Status: running")
@@ -145,7 +145,7 @@ cmd := completionflags.NewCommand("myapp").
 
 **Before (v2.0.0):**
 ```go
-func handler(ctx *completionflags.Context) error {
+func handler(ctx *autocli.Context) error {
     if ctx.Subcommand == "migrate" {
         dryRun := ctx.GetBool("-dry-run", false)
         if dryRun {
@@ -159,7 +159,7 @@ func handler(ctx *completionflags.Context) error {
 
 **After (v2.1.0):**
 ```go
-func handler(ctx *completionflags.Context) error {
+func handler(ctx *autocli.Context) error {
     if ctx.IsSubcommand("migrate") {
         dryRun := ctx.GetBool("-dry-run", false)
         if dryRun {
@@ -175,7 +175,7 @@ func handler(ctx *completionflags.Context) error {
 
 **Before (v2.0.0):**
 ```go
-func handler(ctx *completionflags.Context) error {
+func handler(ctx *autocli.Context) error {
     log.Printf("Executing subcommand: %s", ctx.Subcommand)
     // ... rest of handler
 }
@@ -183,7 +183,7 @@ func handler(ctx *completionflags.Context) error {
 
 **After (v2.1.0):**
 ```go
-func handler(ctx *completionflags.Context) error {
+func handler(ctx *autocli.Context) error {
     log.Printf("Executing subcommand: %s", ctx.SubcommandName())
     // ... rest of handler
 }
@@ -235,7 +235,7 @@ case "insert":
 If you want to add nested subcommands to your application:
 
 ```go
-cmd := completionflags.NewCommand("myapp").
+cmd := autocli.NewCommand("myapp").
     Subcommand("remote").
         Description("Manage remotes").
 
@@ -259,7 +259,7 @@ cmd := completionflags.NewCommand("myapp").
 Then in your handler:
 
 ```go
-func handleCommand(ctx *completionflags.Context) error {
+func handleCommand(ctx *autocli.Context) error {
     switch {
     case ctx.IsSubcommandPath("remote", "add"):
         return handleRemoteAdd(ctx)

@@ -76,7 +76,7 @@ Flag("-filter").
 
 ### Use Index-Based API (Advanced/Framework Use Only)
 - ⚠️ **Only needed for advanced use cases:**
-  - Building frameworks or code generators on top of completionflags
+  - Building frameworks or code generators on top of autocli
   - CLI argument structure comes from external config/schema with **variable argument counts**
   - Maintaining existing code that uses the index-based API
 - Most applications will never need this
