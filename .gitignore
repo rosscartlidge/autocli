@@ -28,6 +28,3 @@ go.work
 # OS
 .DS_Store
 Thumbs.db
-
-# Project documentation (keep local only)
-CLAUDE.md
