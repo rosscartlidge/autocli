@@ -148,28 +148,39 @@ func TestFieldCompleter_Caching(t *testing.T) {
 	f.WriteString("field1,field2,field3\n")
 	f.Close()
 
-	// Extract and cache fields
+	// Extract fields
 	fields, _ := extractFields(f.Name())
-	cacheFields(f.Name(), fields)
-
-	// Check generic cache
-	genericCache := os.Getenv("AUTOCLI_FIELDS")
-	if genericCache != "field1,field2,field3" {
-		t.Errorf("generic cache: got %q, want %q", genericCache, "field1,field2,field3")
+	expectedFields := []string{"field1", "field2", "field3"}
+	if !reflect.DeepEqual(fields, expectedFields) {
+		t.Errorf("extractFields: got %v, want %v", fields, expectedFields)
 	}
 
-	// Check file-specific cache
+	// Simulate what the bash completion script does:
+	// Set environment variables manually (as the completion script would)
+	fieldsStr := strings.Join(fields, ",")
+	os.Setenv("AUTOCLI_FIELDS", fieldsStr)
+
 	baseName := filepath.Base(f.Name())
 	safeName := sanitizeForEnv(baseName)
-	fileCache := os.Getenv("AUTOCLI_FIELDS_" + safeName)
-	if fileCache != "field1,field2,field3" {
-		t.Errorf("file-specific cache: got %q, want %q", fileCache, "field1,field2,field3")
-	}
+	os.Setenv("AUTOCLI_FIELDS_"+safeName, fieldsStr)
 
-	// Test retrieval
+	// Test getCachedFields retrieves from file-specific cache
 	cached := getCachedFields(f.Name())
 	if !reflect.DeepEqual(cached, fields) {
-		t.Errorf("getCachedFields: got %v, want %v", cached, fields)
+		t.Errorf("getCachedFields (file-specific): got %v, want %v", cached, fields)
+	}
+
+	// Test getCachedFields falls back to generic cache
+	os.Unsetenv("AUTOCLI_FIELDS_" + safeName)
+	cached = getCachedFields(f.Name())
+	if !reflect.DeepEqual(cached, fields) {
+		t.Errorf("getCachedFields (generic fallback): got %v, want %v", cached, fields)
+	}
+
+	// Test getCachedFields with empty filename uses generic cache
+	cached = getCachedFields("")
+	if !reflect.DeepEqual(cached, fields) {
+		t.Errorf("getCachedFields (empty filename): got %v, want %v", cached, fields)
 	}
 }
 

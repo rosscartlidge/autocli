@@ -186,21 +186,8 @@ func extractJSONFields(filePath string) ([]string, error) {
 	return nil, nil
 }
 
-// cacheFields stores field names in environment variables for later use
-func cacheFields(filePath string, fields []string) {
-	fieldsStr := strings.Join(fields, ",")
-
-	// Generic cache - "last used"
-	os.Setenv("AUTOCLI_FIELDS", fieldsStr)
-
-	// File-specific cache - more accurate
-	if filePath != "" {
-		safeFileName := sanitizeForEnv(filepath.Base(filePath))
-		os.Setenv("AUTOCLI_FIELDS_"+safeFileName, fieldsStr)
-	}
-}
-
 // getCachedFields retrieves cached field names from environment variables
+// These are set by the bash completion script when it parses __AUTOCLI_CACHE__ directives
 func getCachedFields(filePath string) []string {
 	// Try file-specific cache first
 	if filePath != "" {
