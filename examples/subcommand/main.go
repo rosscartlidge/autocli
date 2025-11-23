@@ -8,9 +8,6 @@ import (
 )
 
 func main() {
-	var verbose bool
-	var configFile string
-
 	cmd := cf.NewCommand("myapp").
 		Version("1.0.0").
 		Description("A sample application with subcommands").
@@ -18,14 +15,12 @@ func main() {
 		// Root global flags
 		Flag("-verbose", "-v").
 			Bool().
-			Bind(&verbose).
 			Global().
 			Help("Enable verbose output").
 			Done().
 
 		Flag("-config").
 			String().
-			Bind(&configFile).
 			Global().
 			Help("Configuration file").
 			Done().
@@ -35,6 +30,10 @@ func main() {
 			Description("Query data with filters").
 
 			Handler(func(ctx *cf.Context) error {
+				// Extract values from context
+				verbose := ctx.GetBool("-verbose", false)
+				configFile := ctx.GetString("-config", "")
+
 				fmt.Printf("Executing query subcommand\n")
 				fmt.Printf("Verbose: %v\n", verbose)
 				fmt.Printf("Config: %s\n", configFile)
@@ -48,6 +47,9 @@ func main() {
 			Description("Import data from files").
 
 			Handler(func(ctx *cf.Context) error {
+				// Extract values from context
+				verbose := ctx.GetBool("-verbose", false)
+
 				fmt.Printf("Executing import subcommand\n")
 				fmt.Printf("Verbose: %v\n", verbose)
 				return nil

@@ -7,16 +7,7 @@ import (
 	cf "github.com/rosscartlidge/autocli/v3"
 )
 
-type Config struct {
-	InputFile  string
-	OutputFile string
-	Format     string
-	Verbose    bool
-}
-
 func main() {
-	config := &Config{}
-
 	cmd := cf.NewCommand("simple").
 		Version("1.0.0").
 		Description("A simple example of completionflags").
@@ -33,7 +24,6 @@ func main() {
 
 		// Input file flag
 		Flag("-input", "-i").
-			Bind(&config.InputFile).
 			String().
 			Global().
 			Required().
@@ -43,7 +33,6 @@ func main() {
 
 		// Output file flag
 		Flag("-output", "-o").
-			Bind(&config.OutputFile).
 			String().
 			Global().
 			Help("Output file path (default: stdout)").
@@ -52,7 +41,6 @@ func main() {
 
 		// Format flag
 		Flag("-format", "-f").
-			Bind(&config.Format).
 			String().
 			Global().
 			Default("json").
@@ -62,22 +50,30 @@ func main() {
 
 		// Verbose flag
 		Flag("-verbose", "-v").
-			Bind(&config.Verbose).
 			Bool().
 			Global().
 			Help("Enable verbose output").
 			Done().
 
 		Handler(func(ctx *cf.Context) error {
-			if config.Verbose {
-				fmt.Printf("Input: %s\n", config.InputFile)
-				fmt.Printf("Output: %s\n", config.OutputFile)
-				fmt.Printf("Format: %s\n", config.Format)
+			// Extract values from context
+			inputFile, err := ctx.RequireString("-input")
+			if err != nil {
+				return err
+			}
+			outputFile := ctx.GetString("-output", "")
+			format := ctx.GetString("-format", "json")
+			verbose := ctx.GetBool("-verbose", false)
+
+			if verbose {
+				fmt.Printf("Input: %s\n", inputFile)
+				fmt.Printf("Output: %s\n", outputFile)
+				fmt.Printf("Format: %s\n", format)
 				fmt.Printf("Clauses: %d\n", len(ctx.Clauses))
 			}
 
 			// Actual processing would go here
-			fmt.Printf("Processing %s -> %s format\n", config.InputFile, config.Format)
+			fmt.Printf("Processing %s -> %s format\n", inputFile, format)
 
 			return nil
 		}).

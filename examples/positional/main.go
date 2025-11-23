@@ -8,21 +8,16 @@ import (
 )
 
 func main() {
-	var verbose bool
-	var inputFile, outputFile string
-
 	cmd := cf.NewCommand("convert").
 		Version("1.0.0").
 		Description("Convert files between formats").
 		Flag("-verbose", "-v").
 			Bool().
-			Bind(&verbose).
 			Global().
 			Help("Enable verbose output").
 			Done().
 		Flag("INPUT").
 			String().
-			Bind(&inputFile).
 			Required().
 			Global().
 			Help("Input file to convert").
@@ -30,13 +25,20 @@ func main() {
 			Done().
 		Flag("OUTPUT").
 			String().
-			Bind(&outputFile).
 			Default("output.txt").
 			Global().
 			Help("Output file path").
 			FilePattern("*.{json,yaml,xml}").
 			Done().
 		Handler(func(ctx *cf.Context) error {
+			// Extract values from context
+			verbose := ctx.GetBool("-verbose", false)
+			inputFile, err := ctx.RequireString("INPUT")
+			if err != nil {
+				return err
+			}
+			outputFile := ctx.GetString("OUTPUT", "output.txt")
+
 			if verbose {
 				fmt.Printf("Converting %s to %s\n", inputFile, outputFile)
 			}

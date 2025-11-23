@@ -7,8 +7,11 @@ import (
 func TestSinglePositional(t *testing.T) {
 	var file string
 	cmd := NewCommand("test").
-		Flag("FILE").String().Bind(&file).Global().Done().
-		Handler(func(ctx *Context) error { return nil }).
+		Flag("FILE").String().Global().Done().
+		Handler(func(ctx *Context) error {
+			file = ctx.GetString("FILE", "")
+			return nil
+		}).
 		Build()
 
 	err := cmd.Execute([]string{"input.txt"})
@@ -24,9 +27,13 @@ func TestSinglePositional(t *testing.T) {
 func TestMultiplePositionals(t *testing.T) {
 	var src, dst string
 	cmd := NewCommand("test").
-		Flag("SRC").String().Bind(&src).Global().Done().
-		Flag("DST").String().Bind(&dst).Global().Done().
-		Handler(func(ctx *Context) error { return nil }).
+		Flag("SRC").String().Global().Done().
+		Flag("DST").String().Global().Done().
+		Handler(func(ctx *Context) error {
+			src = ctx.GetString("SRC", "")
+			dst = ctx.GetString("DST", "")
+			return nil
+		}).
 		Build()
 
 	err := cmd.Execute([]string{"a.txt", "b.txt"})
@@ -45,8 +52,19 @@ func TestMultiplePositionals(t *testing.T) {
 func TestVariadic(t *testing.T) {
 	var files []string
 	cmd := NewCommand("test").
-		Flag("FILES").StringSlice().Bind(&files).Variadic().Global().Done().
-		Handler(func(ctx *Context) error { return nil }).
+		Flag("FILES").StringSlice().Variadic().Global().Done().
+		Handler(func(ctx *Context) error {
+			// StringSlice values are stored as []interface{}, need to convert
+			if val, ok := ctx.GlobalFlags["FILES"]; ok {
+				if interfaceSlice, ok := val.([]interface{}); ok {
+					files = make([]string, len(interfaceSlice))
+					for i, v := range interfaceSlice {
+						files[i] = v.(string)
+					}
+				}
+			}
+			return nil
+		}).
 		Build()
 
 	err := cmd.Execute([]string{"a.txt", "b.txt", "c.txt"})
@@ -66,9 +84,13 @@ func TestMixedFlagsAndPositionals(t *testing.T) {
 	var verbose bool
 	var file string
 	cmd := NewCommand("test").
-		Flag("-v").Bool().Bind(&verbose).Global().Done().
-		Flag("FILE").String().Bind(&file).Global().Done().
-		Handler(func(ctx *Context) error { return nil }).
+		Flag("-v").Bool().Global().Done().
+		Flag("FILE").String().Global().Done().
+		Handler(func(ctx *Context) error {
+			verbose = ctx.GetBool("-v", false)
+			file = ctx.GetString("FILE", "")
+			return nil
+		}).
 		Build()
 
 	err := cmd.Execute([]string{"-v", "input.txt"})
@@ -85,9 +107,8 @@ func TestMixedFlagsAndPositionals(t *testing.T) {
 }
 
 func TestRequiredPositional(t *testing.T) {
-	var file string
 	cmd := NewCommand("test").
-		Flag("FILE").String().Bind(&file).Required().Global().Done().
+		Flag("FILE").String().Required().Global().Done().
 		Handler(func(ctx *Context) error { return nil }).
 		Build()
 
@@ -101,8 +122,11 @@ func TestRequiredPositional(t *testing.T) {
 func TestPositionalWithDefault(t *testing.T) {
 	var file string
 	cmd := NewCommand("test").
-		Flag("FILE").String().Bind(&file).Default("default.txt").Global().Done().
-		Handler(func(ctx *Context) error { return nil }).
+		Flag("FILE").String().Default("default.txt").Global().Done().
+		Handler(func(ctx *Context) error {
+			file = ctx.GetString("FILE", "default.txt")
+			return nil
+		}).
 		Build()
 
 	err := cmd.Execute([]string{})
@@ -118,8 +142,11 @@ func TestPositionalWithDefault(t *testing.T) {
 func TestPositionalInteger(t *testing.T) {
 	var count int
 	cmd := NewCommand("test").
-		Flag("COUNT").Int().Bind(&count).Global().Done().
-		Handler(func(ctx *Context) error { return nil }).
+		Flag("COUNT").Int().Global().Done().
+		Handler(func(ctx *Context) error {
+			count = ctx.GetInt("COUNT", 0)
+			return nil
+		}).
 		Build()
 
 	err := cmd.Execute([]string{"42"})

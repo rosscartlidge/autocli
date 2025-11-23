@@ -8,19 +8,7 @@ import (
 	cf "github.com/rosscartlidge/autocli/v3"
 )
 
-type Config struct {
-	InputFile  string
-	OutputFile string
-	Format     string
-	Verbose    bool
-	Timeout    time.Duration
-	Timezone   string
-	StartTime  time.Time
-}
-
 func main() {
-	config := &Config{}
-
 	cmd := cf.NewCommand("datatool").
 		Version("1.0.0").
 		Description("Process data files with powerful filtering and clause support").
@@ -41,7 +29,6 @@ func main() {
 
 		// Global flags
 		Flag("-input", "-i").
-			Bind(&config.InputFile).
 			String().
 			Global().
 			Required().
@@ -50,7 +37,6 @@ func main() {
 			Done().
 
 		Flag("-output", "-o").
-			Bind(&config.OutputFile).
 			String().
 			Global().
 			Help("Output file path (default: stdout)").
@@ -58,7 +44,6 @@ func main() {
 			Done().
 
 		Flag("-format", "-f").
-			Bind(&config.Format).
 			String().
 			Global().
 			Default("json").
@@ -67,14 +52,12 @@ func main() {
 			Done().
 
 		Flag("-verbose", "-v").
-			Bind(&config.Verbose).
 			Bool().
 			Global().
 			Help("Enable verbose output").
 			Done().
 
 		Flag("-timeout", "-t").
-			Bind(&config.Timeout).
 			Duration().
 			Global().
 			Default(time.Duration(30 * time.Second)).
@@ -83,7 +66,6 @@ func main() {
 			Done().
 
 		Flag("-timezone", "-tz").
-			Bind(&config.Timezone).
 			String().
 			Global().
 			Default("Local").
@@ -92,7 +74,6 @@ func main() {
 			Done().
 
 		Flag("-start-time", "-st").
-			Bind(&config.StartTime).
 			Time().
 			Global().
 			TimeFormats(
@@ -133,19 +114,35 @@ func main() {
 			Done().
 
 		Handler(func(ctx *cf.Context) error {
-			if config.Verbose {
+			// Extract values from context
+			inputFile, err := ctx.RequireString("-input")
+			if err != nil {
+				return err
+			}
+			outputFile := ctx.GetString("-output", "")
+			format := ctx.GetString("-format", "json")
+			verbose := ctx.GetBool("-verbose", false)
+			timeout := ctx.GetDuration("-timeout", 30*time.Second)
+			timezone := ctx.GetString("-timezone", "Local")
+
+			var startTime time.Time
+			if st, ok := ctx.GlobalFlags["-start-time"]; ok && st != nil {
+				startTime = st.(time.Time)
+			}
+
+			if verbose {
 				fmt.Printf("Global configuration:\n")
-				fmt.Printf("  Input: %s\n", ctx.GlobalFlags["-input"])
-				if output, ok := ctx.GlobalFlags["-output"]; ok && output != "" {
-					fmt.Printf("  Output: %s\n", output)
+				fmt.Printf("  Input: %s\n", inputFile)
+				if outputFile != "" {
+					fmt.Printf("  Output: %s\n", outputFile)
 				} else {
 					fmt.Printf("  Output: stdout\n")
 				}
-				fmt.Printf("  Format: %s\n", ctx.GlobalFlags["-format"])
-				fmt.Printf("  Timeout: %v\n", config.Timeout)
-				fmt.Printf("  Timezone: %s\n", config.Timezone)
-				if !config.StartTime.IsZero() {
-					fmt.Printf("  Start Time: %s\n", config.StartTime.Format(time.RFC3339))
+				fmt.Printf("  Format: %s\n", format)
+				fmt.Printf("  Timeout: %v\n", timeout)
+				fmt.Printf("  Timezone: %s\n", timezone)
+				if !startTime.IsZero() {
+					fmt.Printf("  Start Time: %s\n", startTime.Format(time.RFC3339))
 				}
 				fmt.Printf("  Clauses: %d\n\n", len(ctx.Clauses))
 			}
@@ -181,16 +178,16 @@ func main() {
 			}
 
 			// In a real program, you would:
-			// 1. Load data from config.InputFile
+			// 1. Load data from inputFile
 			// 2. For each clause:
 			//    - Apply filters
 			//    - Apply sort
 			//    - Collect results
 			// 3. Combine results (e.g., OR logic across clauses)
-			// 4. Convert to config.Format
-			// 5. Write to config.OutputFile or stdout
+			// 4. Convert to format
+			// 5. Write to outputFile or stdout
 
-			fmt.Printf("Processing complete. Would write output in %s format.\n", config.Format)
+			fmt.Printf("Processing complete. Would write output in %s format.\n", format)
 
 			return nil
 		}).

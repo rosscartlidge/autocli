@@ -878,6 +878,16 @@ func (sfb *SubcommandFlagBuilder) TimeZoneFromFlag(flagName string) *SubcommandF
 	return sfb
 }
 
+// FieldsFromFlag sets up field completion from a file specified by another flag
+func (sfb *SubcommandFlagBuilder) FieldsFromFlag(flagName string) *SubcommandFlagBuilder {
+	sfb.spec.FieldsFromFlag = flagName
+	// Set a FieldCompleter that will use this reference
+	if sfb.spec.ArgCount == 1 {
+		sfb.spec.ArgCompleters[0] = &FieldCompleter{SourceFlag: flagName}
+	}
+	return sfb
+}
+
 // Arg starts defining a new argument
 func (sfb *SubcommandFlagBuilder) Arg(name string) *SubcommandArgBuilder {
 	// On first call, clear default setup
@@ -937,6 +947,14 @@ func (sab *SubcommandArgBuilder) TimeZone(tz string) *SubcommandArgBuilder {
 // TimeZoneFromFlag sets timezone from another flag
 func (sab *SubcommandArgBuilder) TimeZoneFromFlag(flagName string) *SubcommandArgBuilder {
 	sab.sfb.spec.TimeZoneFromFlag = flagName
+	return sab
+}
+
+// FieldsFromFlag sets up field completion from a file specified by another flag
+func (sab *SubcommandArgBuilder) FieldsFromFlag(flagName string) *SubcommandArgBuilder {
+	sab.sfb.spec.FieldsFromFlag = flagName
+	// Set completer for this specific argument
+	sab.sfb.spec.ArgCompleters[sab.argIndex] = &FieldCompleter{SourceFlag: flagName}
 	return sab
 }
 

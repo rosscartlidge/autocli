@@ -293,6 +293,18 @@ func (fb *FlagBuilder) TimeZoneFromFlag(flagName string) *FlagBuilder {
 	return fb
 }
 
+// FieldsFromFlag sets up field completion from a file specified by another flag
+// The referenced flag should contain a file path (CSV, TSV, JSON, or JSONL)
+// Field names will be extracted from the file's header/first record
+func (fb *FlagBuilder) FieldsFromFlag(flagName string) *FlagBuilder {
+	fb.spec.FieldsFromFlag = flagName
+	// Set a FieldCompleter that will use this reference
+	if fb.spec.ArgCount == 1 {
+		fb.spec.ArgCompleters[0] = &FieldCompleter{SourceFlag: flagName}
+	}
+	return fb
+}
+
 // Arg starts defining a new argument (fluent API alternative to Args() + ArgName/ArgType/ArgCompleter)
 func (fb *FlagBuilder) Arg(name string) *ArgBuilder {
 	// On first call, clear the default single-arg setup
@@ -348,6 +360,14 @@ func (ab *ArgBuilder) TimeZone(tz string) *ArgBuilder {
 // TimeZoneFromFlag sets this ArgTime to use timezone from another flag (must be Global flag)
 func (ab *ArgBuilder) TimeZoneFromFlag(flagName string) *ArgBuilder {
 	ab.fb.spec.TimeZoneFromFlag = flagName
+	return ab
+}
+
+// FieldsFromFlag sets up field completion from a file specified by another flag
+func (ab *ArgBuilder) FieldsFromFlag(flagName string) *ArgBuilder {
+	ab.fb.spec.FieldsFromFlag = flagName
+	// Set completer for this specific argument
+	ab.fb.spec.ArgCompleters[ab.argIndex] = &FieldCompleter{SourceFlag: flagName}
 	return ab
 }
 

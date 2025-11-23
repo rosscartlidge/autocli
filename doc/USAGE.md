@@ -60,22 +60,17 @@ import (
 )
 
 func main() {
-    var verbose bool
-    var output string
-
     cmd := cf.NewCommand("myapp").
         Version("1.0.0").
         Description("A simple example application").
 
         Flag("-verbose", "-v").
-            Bind(&verbose).
             Bool().
             Global().
             Help("Enable verbose output").
             Done().
 
         Flag("-output", "-o").
-            Bind(&output).
             String().
             Global().
             Default("stdout").
@@ -84,6 +79,10 @@ func main() {
             Done().
 
         Handler(func(ctx *cf.Context) error {
+            // Extract values from context
+            verbose := ctx.GetBool("-verbose", false)
+            output := ctx.GetString("-output", "stdout")
+
             if verbose {
                 fmt.Println("Verbose mode enabled")
             }
@@ -1555,6 +1554,134 @@ Choose completer based on context:
     },
 }
 ```
+
+#### FieldCompleter
+
+**NEW in v3.1.0:** Complete field names from data files (CSV, TSV, JSON, JSONL).
+
+The FieldCompleter reads a data file and extracts field names from the header or first record, providing intelligent field name completion for data processing tools.
+
+**Basic Usage:**
+
+```go
+Flag("-input", "-i").
+    String().
+    Global().
+    Required().
+    Help("Input data file").
+    FilePattern("*.{csv,tsv,json,jsonl}").
+    Done().
+
+Flag("-group").
+    String().
+    FieldsFromFlag("-input").  // References the -input flag
+    Help("Field to group by").
+    Done()
+```
+
+When the user types:
+```bash
+$ myapp -input data.csv -group <TAB>
+# Completes: name, age, salary, department (from data.csv header)
+```
+
+**Supported File Formats:**
+
+- **CSV** (`.csv`) - Reads comma-separated header line
+- **TSV** (`.tsv`) - Reads tab-separated header line
+- **JSONL** (`.jsonl`, `.ndjson`) - Reads first line, extracts object keys
+- **JSON** (`.json`) - Handles arrays (first object keys) or single objects
+
+**Multi-Argument Flags:**
+
+Works with multi-argument flags too:
+
+```go
+Flag("-sum").
+    Arg("FIELD").
+        FieldsFromFlag("-input").  // Complete field names
+        Done().
+    Arg("RESULT").Done().
+    Done()
+```
+
+**Environment Variable Caching:**
+
+The FieldCompleter caches extracted fields in environment variables for performance and to support pipelines:
+
+```bash
+# First command reads file and caches fields
+$ ssql -input data.csv -select name,age | \
+# Second command uses cached fields (no -input specified)
+  ssql -group <TAB>
+# Completes: name, age (from cache)
+```
+
+**Environment variables set:**
+- `AUTOCLI_FIELDS` - Generic "last used" fields
+- `AUTOCLI_FIELDS_<filename>` - File-specific cache
+
+This allows completion to work in piped commands where the input file isn't directly specified.
+
+**Fallback Behavior:**
+
+The completer tries multiple strategies in order:
+
+1. **Read from file** - If `-input` flag value is available
+2. **File-specific cache** - `AUTOCLI_FIELDS_data_csv`
+3. **Generic cache** - `AUTOCLI_FIELDS`
+4. **Hint** - Shows `<FIELD>` if all else fails
+
+**Complete Example:**
+
+```go
+cmd := cf.NewCommand("datatool").
+    Flag("-input", "-i").
+        String().
+        Global().
+        Required().
+        Help("Input data file").
+        FilePattern("*.{csv,tsv,json,jsonl}").
+        Done().
+
+    Flag("-select").
+        String().
+        FieldsFromFlag("-input").
+        Accumulate().
+        Help("Fields to select").
+        Done().
+
+    Flag("-group").
+        String().
+        FieldsFromFlag("-input").
+        Help("Field to group by").
+        Done().
+
+    Flag("-sum").
+        Arg("FIELD").
+            FieldsFromFlag("-input").
+            Done().
+        Arg("RESULT").Done().
+        Accumulate().
+        Help("Sum field as result").
+        Done().
+
+    Handler(func(ctx *cf.Context) error {
+        inputFile, _ := ctx.RequireString("-input")
+        groupBy := ctx.GetString("-group", "")
+
+        // Process data...
+        // When you read the file, also cache fields for pipelines:
+        fields := readFieldsFromFile(inputFile)
+        os.Setenv("AUTOCLI_FIELDS", strings.Join(fields, ","))
+
+        return nil
+    }).
+
+    Build()
+```
+
+**Note:** For best pipeline support, your program should also set `AUTOCLI_FIELDS` when reading data files during execution, not just during completion.
 
 ### Custom Completers
 

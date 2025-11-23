@@ -8,9 +8,6 @@ import (
 )
 
 func main() {
-	var verbose bool
-	var outputFile string
-
 	cmd := cf.NewCommand("datatool").
 		Version("1.0.0").
 		Description("Data query tool with subcommands and clauses").
@@ -18,7 +15,6 @@ func main() {
 		// Root global flags
 		Flag("-verbose", "-v").
 			Bool().
-			Bind(&verbose).
 			Global().
 			Help("Enable verbose output").
 			Done().
@@ -30,7 +26,6 @@ func main() {
 			// Global flag for this subcommand
 			Flag("-output", "-o").
 				String().
-				Bind(&outputFile).
 				Global().
 				Help("Output file").
 				Done().
@@ -60,6 +55,10 @@ func main() {
 				Done().
 
 			Handler(func(ctx *cf.Context) error {
+				// Extract values from context
+				verbose := ctx.GetBool("-verbose", false)
+				outputFile := ctx.GetString("-output", "")
+
 				fmt.Printf("Query Subcommand\n")
 				fmt.Printf("Verbose: %v\n", verbose)
 				fmt.Printf("Output: %s\n", outputFile)
@@ -106,7 +105,10 @@ func main() {
 				Done().
 
 			Handler(func(ctx *cf.Context) error {
+				// Extract values from context
+				verbose := ctx.GetBool("-verbose", false)
 				source := ctx.GlobalFlags["SOURCE"].(string)
+
 				fmt.Printf("Import Subcommand\n")
 				fmt.Printf("Verbose: %v\n", verbose)
 				fmt.Printf("Source: %s\n", source)

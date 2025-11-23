@@ -8,7 +8,7 @@ import (
 )
 
 // Version is the completionflags library version
-const Version = "2.1.0"
+const Version = "3.1.0"
 
 // Command represents a CLI command with flags, clauses, and completion support
 type Command struct {
@@ -51,6 +51,9 @@ type FlagSpec struct {
 	TimeFormats      []string // Multiple formats to try in order (uses time.ParseInLocation)
 	TimeZone         string   // IANA timezone name or "Local" for formats without TZ info
 	TimeZoneFromFlag string   // Flag name to get timezone from (must be Global flag, e.g., "-timezone")
+
+	// Field completion (for data file field names)
+	FieldsFromFlag   string   // Flag name to get file path from (e.g., "-input") for field completion
 
 	// Display
 	Hidden      bool          // Hide from help/man (for internal flags)
