@@ -28,11 +28,24 @@ if ! type _autocli_complete &>/dev/null; then
 
         # Call the binary with -complete to get completions
         # The binary handles all completion logic internally
-        local completions
-        completions=$(${COMP_WORDS[0]} -complete $COMP_CWORD "${COMP_WORDS[@]:1}" 2>/dev/null)
+        local output
+        output=$(${COMP_WORDS[0]} -complete $COMP_CWORD "${COMP_WORDS[@]:1}" 2>/dev/null)
 
-        if [[ -n "$completions" ]]; then
-            COMPREPLY=($(compgen -W "$completions" -- "$cur"))
+        # Check for cache directive and extract it
+        # Format: __AUTOCLI_CACHE__:field1,field2,field3
+        if echo "$output" | grep -q "^__AUTOCLI_CACHE__:"; then
+            # Extract cache data and set environment variable
+            local cache_line
+            cache_line=$(echo "$output" | grep "^__AUTOCLI_CACHE__:")
+            local cache_data="${cache_line#__AUTOCLI_CACHE__:}"
+            export AUTOCLI_FIELDS="$cache_data"
+
+            # Remove cache directive from completions
+            output=$(echo "$output" | grep -v "^__AUTOCLI_CACHE__:")
+        fi
+
+        if [[ -n "$output" ]]; then
+            COMPREPLY=($(compgen -W "$output" -- "$cur"))
         fi
     }
 fi

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -199,10 +200,27 @@ func TestFieldCompleter_Complete(t *testing.T) {
 		t.Fatalf("Complete failed: %v", err)
 	}
 
-	// Check fields
-	expected := []string{"name", "age", "email", "department"}
-	if !reflect.DeepEqual(fields, expected) {
-		t.Errorf("completion fields: got %v, want %v", fields, expected)
+	// Check fields - should include cache directive and field names
+	// Format: ["__AUTOCLI_CACHE__:name,age,email,department", "name", "age", "email", "department"]
+	if len(fields) != 5 {
+		t.Errorf("expected 5 results (cache directive + 4 fields), got %d: %v", len(fields), fields)
+	}
+
+	// First result should be cache directive
+	if !strings.HasPrefix(fields[0], "__AUTOCLI_CACHE__:") {
+		t.Errorf("first result should be cache directive, got: %s", fields[0])
+	}
+
+	// Check cache directive contains all fields
+	expectedCache := "__AUTOCLI_CACHE__:name,age,email,department"
+	if fields[0] != expectedCache {
+		t.Errorf("cache directive: got %s, want %s", fields[0], expectedCache)
+	}
+
+	// Remaining results should be the field names
+	expectedFields := []string{"name", "age", "email", "department"}
+	if !reflect.DeepEqual(fields[1:], expectedFields) {
+		t.Errorf("field names: got %v, want %v", fields[1:], expectedFields)
 	}
 }
 

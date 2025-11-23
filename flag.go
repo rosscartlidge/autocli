@@ -8,7 +8,7 @@ import (
 )
 
 // Version is the completionflags library version
-const Version = "3.1.0"
+const Version = "3.2.0"
 
 // Command represents a CLI command with flags, clauses, and completion support
 type Command struct {

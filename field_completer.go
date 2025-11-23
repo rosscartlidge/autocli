@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,9 +26,16 @@ func (fc *FieldCompleter) Complete(ctx CompletionContext) ([]string, error) {
 		// Try to extract fields from the file
 		fields, err := extractFields(filePath)
 		if err == nil && len(fields) > 0 {
-			// Cache fields for future use
-			cacheFields(filePath, fields)
-			return filterFields(fields, ctx.Partial), nil
+			// Return completions WITH cache directive
+			// The completion script will parse this and set env vars
+			filtered := filterFields(fields, ctx.Partial)
+
+			// Prepend cache directive with ALL fields (not just filtered)
+			// Format: __AUTOCLI_CACHE__:field1,field2,field3
+			cacheDirective := fmt.Sprintf("__AUTOCLI_CACHE__:%s", strings.Join(fields, ","))
+			result := append([]string{cacheDirective}, filtered...)
+
+			return result, nil
 		}
 	}
 
@@ -241,4 +249,55 @@ func filterFields(fields []string, partial string) []string {
 	}
 
 	return matches
+}
+
+// FieldCacheCompleter provides a special completer for -cache flags
+// It extracts fields from a file and returns the cache directive + "DONE"
+// This is used to enable field caching in pipeline scenarios where the
+// first command doesn't have any FieldsFromFlag flags
+type FieldCacheCompleter struct {
+	SourceFlag string // Flag containing the file path (e.g., "FILE")
+}
+
+// Complete implements Completer interface
+// Returns cache directive and "DONE" as the only completion option
+func (fcc *FieldCacheCompleter) Complete(ctx CompletionContext) ([]string, error) {
+	// Try to get the file path from the source flag
+	filePath := fcc.getFilePathFromContext(ctx)
+
+	if filePath != "" {
+		// Try to extract fields from the file
+		fields, err := extractFields(filePath)
+		if err == nil && len(fields) > 0 {
+			// Return cache directive + "DONE"
+			// Format: __AUTOCLI_CACHE__:field1,field2,field3
+			cacheDirective := fmt.Sprintf("__AUTOCLI_CACHE__:%s", strings.Join(fields, ","))
+			return []string{cacheDirective, "DONE"}, nil
+		}
+	}
+
+	// If we can't read the file, just return DONE
+	return []string{"DONE"}, nil
+}
+
+// getFilePathFromContext extracts the file path from the referenced flag
+func (fcc *FieldCacheCompleter) getFilePathFromContext(ctx CompletionContext) string {
+	// Check GlobalFlags for the source flag value
+	if val, ok := ctx.GlobalFlags[fcc.SourceFlag]; ok && val != nil {
+		if filePath, ok := val.(string); ok {
+			return filePath
+		}
+	}
+
+	// Also check in the current args being parsed
+	for i := 0; i < len(ctx.Args)-1; i++ {
+		if ctx.Args[i] == fcc.SourceFlag {
+			// Next arg should be the file path
+			if i+1 < len(ctx.Args) {
+				return ctx.Args[i+1]
+			}
+		}
+	}
+
+	return ""
 }
