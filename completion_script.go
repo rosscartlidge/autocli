@@ -20,11 +20,10 @@ func (cmd *Command) GenerateCompletionScript() string {
 # that works for all programs built with autocli.
 # This allows bash to load the function once and reuse it for multiple programs.
 
-# Define the shared completion function if not already defined
-if ! type _autocli_complete &>/dev/null; then
-    _autocli_complete() {
-        local cur prev words cword
-        cur="${COMP_WORDS[COMP_CWORD]}"
+# Define the shared completion function
+_autocli_complete() {
+    local cur prev words cword
+    cur="${COMP_WORDS[COMP_CWORD]}"
 
         # Call the binary with -complete to get completions
         # The binary handles all completion logic internally
@@ -85,8 +84,7 @@ if ! type _autocli_complete &>/dev/null; then
         if [[ -n "$output" ]]; then
             COMPREPLY=($(compgen -W "$output" -- "$cur"))
         fi
-    }
-fi
+}
 
 # Register the completion function for this command
 complete -F _autocli_complete %s
