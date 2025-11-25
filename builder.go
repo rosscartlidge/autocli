@@ -389,6 +389,18 @@ func (ab *ArgBuilder) FieldsFromFlag(flagName string) *ArgBuilder {
 	return ab
 }
 
+// FieldValuesFrom sets up field value completion from a file
+// The sourceFlag specifies which flag contains the file path (e.g., "-input" or "FILE")
+// The fieldArg specifies which argument contains the field name to sample from
+// Example: Flag("-match").Arg("FIELD").Done().Arg("VALUE").FieldValuesFrom("-input", "FIELD")
+func (ab *ArgBuilder) FieldValuesFrom(sourceFlag, fieldArg string) *ArgBuilder {
+	ab.fb.spec.ArgCompleters[ab.argIndex] = &FieldValueCompleter{
+		SourceFlag: sourceFlag,
+		FieldArg:   fieldArg,
+	}
+	return ab
+}
+
 // Done finalizes the argument and returns to the flag builder
 func (ab *ArgBuilder) Done() *FlagBuilder {
 	return ab.fb

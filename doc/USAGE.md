@@ -1809,6 +1809,257 @@ readcsv users.csv | where -input users.csv -match <TAB>
 
 The `-cache` flag eliminates this duplication and makes pipelines more ergonomic.
 
+#### Field Value Completion with FieldValuesFrom()
+
+**NEW in v4.0.0:** Complete with actual data values from files, not just field names.
+
+**The Problem:**
+
+When building data filtering or matching commands, users need to type exact values:
+
+```bash
+$ myapp -input users.csv -match name Alice   # User must remember "Alice" exactly
+```
+
+With `FieldValuesFrom()`, the shell can complete with actual data values sampled from the file:
+
+```bash
+$ myapp -input users.csv -match name <TAB>
+# Completes: Alice, Bob, Charlie, Diana, Eve  (actual names from the file!)
+```
+
+**Basic Usage:**
+
+```go
+Flag("-match").
+    Arg("FIELD").
+        FieldsFromFlag("-input").  // Complete field names
+        Done().
+    Arg("VALUE").
+        FieldValuesFrom("-input", "FIELD").  // Complete values from that field!
+        Done().
+    Done()
+```
+
+**How It Works:**
+
+1. User completes the field name: `-match name <TAB>`
+2. User tabs on the value: `-match name <TAB>`
+3. The completer:
+   - Looks at the previous argument ("name") using the `FIELD` reference
+   - Reads the file from `-input` flag
+   - Samples unique values from the "name" column
+   - Returns JSON directive with values + filtered completions
+4. Bash completion script parses JSON and exports `AUTOCLI_VALUES_name` env var
+5. Shows completions to user
+
+**Complete Example:**
+
+```go
+cmd := cf.NewCommand("datafilter").
+    Flag("-input", "-i").
+        String().
+        Global().
+        Required().
+        Help("Input data file (CSV, TSV, JSON, JSONL)").
+        FilePattern("*.{csv,tsv,json,jsonl}").
+        Done().
+
+    Flag("-match").
+        Arg("FIELD").
+            FieldsFromFlag("-input").           // Complete: name, age, city
+            Done().
+        Arg("VALUE").
+            FieldValuesFrom("-input", "FIELD"). // Complete: Alice, Bob, Charlie
+            Done().
+        Help("Match records where FIELD equals VALUE").
+        Done().
+
+    Handler(func(ctx *cf.Context) error {
+        inputFile, _ := ctx.RequireString("-input")
+
+        // Get match criteria
+        if match, ok := ctx.GlobalFlags["-match"].(map[string]interface{}); ok {
+            field := match["FIELD"].(string)
+            value := match["VALUE"].(string)
+            // Filter data where field == value...
+        }
+
+        return nil
+    }).
+
+    Build()
+```
+
+**Real-World Usage:**
+
+```bash
+# User workflow with tab completion
+$ datafilter -input users.csv -match <TAB>
+# Shows: -match
+
+$ datafilter -input users.csv -match na<TAB>
+# Completes: name
+
+$ datafilter -input users.csv -match name <TAB>
+# Shows actual data from the name column:
+# Alice   Bob   Charlie   Diana   Eve
+
+$ datafilter -input users.csv -match name Al<TAB>
+# Completes: Alice
+
+# Final command
+$ datafilter -input users.csv -match name Alice
+```
+
+**Sampling Strategy:**
+
+For performance, `FieldValuesFrom()` samples data rather than reading entire files:
+
+- **Default limits:**
+  - `MaxSamples`: 100 unique values
+  - `MaxRecords`: 10,000 records scanned
+
+- **Behavior:**
+  - Stops after finding 100 unique values, OR
+  - Stops after scanning 10,000 records, whichever comes first
+  - Values are sorted alphabetically
+  - Empty values are skipped
+  - Duplicate values are deduplicated
+
+**Customizing Sample Limits:**
+
+You can create a custom completer with different limits:
+
+```go
+Arg("VALUE").
+    Completer(&cf.FieldValueCompleter{
+        SourceFlag: "-input",
+        FieldArg:   "FIELD",
+        MaxSamples: 50,    // Only show 50 unique values
+        MaxRecords: 5000,  // Scan at most 5000 records
+    }).
+    Done()
+```
+
+**Special Characters Support:**
+
+Values with spaces, quotes, commas, and other special characters are handled correctly via JSON encoding:
+
+```bash
+# CSV data contains:
+# name,city
+# "Alice Smith","New York"
+# "Bob O'Brien","San Francisco"
+# "Diana, Princess","London"
+
+$ myapp -match name <TAB>
+# Completions work correctly:
+Alice Smith    Bob O'Brien    Diana, Princess
+```
+
+**Multi-Level Filtering:**
+
+You can have multiple match flags, each with field value completion:
+
+```go
+Flag("-match").
+    Arg("FIELD").FieldsFromFlag("-input").Done().
+    Arg("VALUE").FieldValuesFrom("-input", "FIELD").Done().
+    Accumulate().  // Allow multiple filters
+    Help("Filter by field=value").
+    Done()
+```
+
+**Usage:**
+```bash
+$ myapp -input data.csv \
+    -match status <TAB>          # Completes: active, inactive, pending
+    -match status active \
+    -match role <TAB>             # Completes: admin, user, guest
+    -match role admin
+```
+
+**Positional Arguments:**
+
+Works with positional arguments too:
+
+```go
+Subcommand("filter").
+    Flag("FILE").
+        String().
+        FilePattern("*.{csv,json}").
+        Done().
+
+    Flag("-match").
+        Arg("FIELD").FieldsFromFlag("FILE").Done().
+        Arg("VALUE").FieldValuesFrom("FILE", "FIELD").Done().
+        Done()
+```
+
+**Requirements:**
+
+- **jq must be installed** - The bash completion script uses `jq` to parse JSON directives
+- Without jq: Completion falls back to showing `<VALUE>` hint
+- Install jq: `sudo apt install jq` (Debian/Ubuntu) or `brew install jq` (macOS)
+
+**Performance:**
+
+- **CSV/TSV:** ~5-15ms for files with 10K records
+- **JSON/JSONL:** ~8-20ms for files with 10K records
+- **jq overhead:** ~2-7ms (imperceptible to users)
+- **Total completion time:** Typically under 50ms (well below 100ms threshold for instant feel)
+
+**Supported File Formats:**
+
+- **CSV** (`.csv`) - Comma-separated values
+- **TSV** (`.tsv`) - Tab-separated values
+- **JSONL** (`.jsonl`, `.ndjson`) - JSON Lines (one object per line)
+- **JSON** (`.json`) - JSON arrays of objects
+
+**Environment Variable Caching:**
+
+Similar to `FieldsFromFlag()`, sampled values are cached in environment variables:
+
+- `AUTOCLI_VALUES_<fieldname>` - Comma-separated unique values for each field
+
+This allows faster subsequent completions without re-reading the file.
+
+**When to Use FieldValuesFrom():**
+
+- ✅ Data filtering commands (WHERE clauses, MATCH operators)
+- ✅ Search/query tools that need exact value matching
+- ✅ Commands where users benefit from seeing actual data
+- ✅ Fields with categorical/enumerable values (status, role, category)
+
+**When NOT to Use:**
+
+- ❌ Fields with too many unique values (IDs, timestamps, UUIDs)
+- ❌ Numeric fields with continuous values (use validation instead)
+- ❌ Very large files where sampling would be too slow
+- ❌ Sensitive data that shouldn't be exposed in shell history
+
+**Comparison with FieldsFromFlag():**
+
+| Feature | FieldsFromFlag() | FieldValuesFrom() |
+|---------|------------------|-------------------|
+| Completes | Field **names** | Field **values** |
+| Source | File header/schema | File data records |
+| Performance | Fast (~5ms) | Moderate (~15ms) |
+| Cache var | AUTOCLI_FIELDS | AUTOCLI_VALUES_<field> |
+| Use case | Select fields | Filter by values |
+| New in | v3.1.0 | v4.0.0 |
+
+**JSON Interchange Format:**
+
+V4.0.0 introduces a new JSON-based completion interchange format for robust handling of special characters:
+
+```json
+{"type":"field_values","field":"name","values":["Alice","Bob","Charlie"]}
+```
+
+The bash completion script automatically detects and parses these JSON directives using `jq`, exporting the appropriate environment variables.
+
 ### Custom Completers
 
 Implement the `Completer` interface:

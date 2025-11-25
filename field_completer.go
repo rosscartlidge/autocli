@@ -11,6 +11,27 @@ import (
 	"strings"
 )
 
+// CompletionDirective represents a JSON directive for the completion script
+// These are returned alongside regular completions to pass structured data
+// to the bash completion script (requires jq to parse)
+type CompletionDirective struct {
+	Type   string   `json:"type"`            // Directive type: "field_cache", "field_values", "env"
+	Fields []string `json:"fields,omitempty"` // For field_cache: list of field names
+	Field  string   `json:"field,omitempty"`  // For field_values: which field these values are from
+	Values []string `json:"values,omitempty"` // For field_values: the actual values
+	Key    string   `json:"key,omitempty"`    // For env: environment variable name
+	Value  string   `json:"value,omitempty"`  // For env: environment variable value
+}
+
+// toJSON converts the directive to a JSON string
+func (cd *CompletionDirective) toJSON() string {
+	jsonBytes, err := json.Marshal(cd)
+	if err != nil {
+		return "" // Silently fail - completion will still work without directive
+	}
+	return string(jsonBytes)
+}
+
 // FieldCompleter provides field name completion from data files (CSV, TSV, JSON, JSONL)
 // It reads the file specified by another flag and extracts field names from the header/first record
 type FieldCompleter struct {
@@ -26,14 +47,18 @@ func (fc *FieldCompleter) Complete(ctx CompletionContext) ([]string, error) {
 		// Try to extract fields from the file
 		fields, err := extractFields(filePath)
 		if err == nil && len(fields) > 0 {
-			// Return completions WITH cache directive
-			// The completion script will parse this and set env vars
+			// Return completions with JSON cache directive
 			filtered := filterFields(fields, ctx.Partial)
 
-			// Prepend cache directive with ALL fields (not just filtered)
-			// Format: __AUTOCLI_CACHE__:field1,field2,field3
-			cacheDirective := fmt.Sprintf("__AUTOCLI_CACHE__:%s", strings.Join(fields, ","))
-			result := append([]string{cacheDirective}, filtered...)
+			// Create JSON directive for field caching
+			directive := CompletionDirective{
+				Type:   "field_cache",
+				Fields: fields, // All fields (not just filtered)
+			}
+
+			// Prepend JSON directive
+			result := []string{directive.toJSON()}
+			result = append(result, filtered...)
 
 			return result, nil
 		}
@@ -247,7 +272,7 @@ type FieldCacheCompleter struct {
 }
 
 // Complete implements Completer interface
-// Returns cache directive and "DONE" as the only completion option
+// Returns JSON cache directive and "DONE" as the only completion option
 func (fcc *FieldCacheCompleter) Complete(ctx CompletionContext) ([]string, error) {
 	// Try to get the file path from the source flag
 	filePath := fcc.getFilePathFromContext(ctx)
@@ -256,10 +281,12 @@ func (fcc *FieldCacheCompleter) Complete(ctx CompletionContext) ([]string, error
 		// Try to extract fields from the file
 		fields, err := extractFields(filePath)
 		if err == nil && len(fields) > 0 {
-			// Return cache directive + "DONE"
-			// Format: __AUTOCLI_CACHE__:field1,field2,field3
-			cacheDirective := fmt.Sprintf("__AUTOCLI_CACHE__:%s", strings.Join(fields, ","))
-			return []string{cacheDirective, "DONE"}, nil
+			// Return JSON cache directive + "DONE"
+			directive := CompletionDirective{
+				Type:   "field_cache",
+				Fields: fields,
+			}
+			return []string{directive.toJSON(), "DONE"}, nil
 		}
 	}
 
@@ -319,3 +346,297 @@ func (fcc *FieldCacheCompleter) getFilePathFromContext(ctx CompletionContext) st
 
 	return ""
 }
+
+// FieldValueCompleter provides completion for field values from data files
+// It samples actual data values from a file to provide realistic completions
+// Used with FieldValuesFrom() to enable tab completion like: -match name <TAB> → Alice, Bob, Charlie
+type FieldValueCompleter struct {
+	SourceFlag string // Flag containing the file path (e.g., "-input" or "FILE")
+	FieldArg   string // Name of argument containing the field name (e.g., "FIELD")
+	MaxSamples int    // Maximum unique values to sample (default: 100)
+	MaxRecords int    // Maximum records to scan (default: 10000)
+}
+
+// Complete implements Completer interface
+// Returns JSON directive with sampled field values
+func (fvc *FieldValueCompleter) Complete(ctx CompletionContext) ([]string, error) {
+	// Set defaults
+	maxSamples := fvc.MaxSamples
+	if maxSamples == 0 {
+		maxSamples = 100
+	}
+	maxRecords := fvc.MaxRecords
+	if maxRecords == 0 {
+		maxRecords = 10000
+	}
+
+	// Get the field name from context
+	fieldName := fvc.getFieldNameFromContext(ctx)
+	if fieldName == "" {
+		return []string{"<VALUE>"}, nil
+	}
+
+	// Get the file path from context
+	filePath := fvc.getFilePathFromContext(ctx)
+	if filePath == "" {
+		return []string{"<VALUE>"}, nil
+	}
+
+	// Sample field values from the file
+	values, err := sampleFieldValues(filePath, fieldName, maxSamples, maxRecords)
+	if err != nil || len(values) == 0 {
+		// Fallback: check if we have cached values in environment
+		if cached := os.Getenv("AUTOCLI_VALUES_" + sanitizeForEnv(fieldName)); cached != "" {
+			return strings.Split(cached, ","), nil
+		}
+		return []string{"<VALUE>"}, nil
+	}
+
+	// Return JSON directive + filtered values
+	filtered := filterFields(values, ctx.Partial)
+
+	directive := CompletionDirective{
+		Type:   "field_values",
+		Field:  fieldName,
+		Values: values, // All values (not just filtered)
+	}
+
+	result := []string{directive.toJSON()}
+	result = append(result, filtered...)
+
+	return result, nil
+}
+
+// getFieldNameFromContext extracts the field name from the previous arguments
+// This looks at the FlagSpec to find which argument is the field name
+func (fvc *FieldValueCompleter) getFieldNameFromContext(ctx CompletionContext) string {
+	// The field name comes from a previous argument in this flag
+	// For example: -match FIELD VALUE
+	// We're completing VALUE, and need to get FIELD from PreviousArgs
+
+	if ctx.Command == nil || ctx.FlagName == "" {
+		return ""
+	}
+
+	// Find the flag spec from the command
+	var flagSpec *FlagSpec
+	for _, spec := range ctx.Command.flags {
+		for _, name := range spec.Names {
+			if name == ctx.FlagName {
+				flagSpec = spec
+				break
+			}
+		}
+		if flagSpec != nil {
+			break
+		}
+	}
+
+	if flagSpec == nil {
+		return ""
+	}
+
+	// Find the argument index for our field arg
+	for i, argName := range flagSpec.ArgNames {
+		if argName == fvc.FieldArg {
+			// Check if we have this argument in PreviousArgs
+			if i < len(ctx.PreviousArgs) {
+				return ctx.PreviousArgs[i]
+			}
+		}
+	}
+
+	return ""
+}
+
+// getFilePathFromContext extracts the file path from the referenced flag
+// This is identical to FieldCacheCompleter.getFilePathFromContext
+func (fvc *FieldValueCompleter) getFilePathFromContext(ctx CompletionContext) string {
+	// Check GlobalFlags for the source flag value (works for regular flags and parsed positionals)
+	if val, ok := ctx.GlobalFlags[fvc.SourceFlag]; ok && val != nil {
+		if filePath, ok := val.(string); ok {
+			return filePath
+		}
+	}
+
+	// Check in Args for flag-style arguments (e.g., -input file.csv)
+	for i := 0; i < len(ctx.Args)-1; i++ {
+		if ctx.Args[i] == fvc.SourceFlag {
+			// Next arg should be the file path
+			if i+1 < len(ctx.Args) {
+				return ctx.Args[i+1]
+			}
+		}
+	}
+
+	// For positional arguments: find the positional flag spec and get its value from Args
+	if ctx.Command != nil {
+		// Find the positional flag with the matching name
+		var positionals []*FlagSpec
+		for _, spec := range ctx.Command.flags {
+			if spec.isPositional() {
+				positionals = append(positionals, spec)
+			}
+		}
+
+		// Find which positional index our source flag is
+		for i, spec := range positionals {
+			if len(spec.Names) > 0 && spec.Names[0] == fvc.SourceFlag {
+				// This is our positional - get its value from Args[i]
+				if i < len(ctx.Args) {
+					// Skip any flags in Args to find positional values
+					positionalValues := []string{}
+					for _, arg := range ctx.Args {
+						// Skip flags and their arguments
+						if !strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "+") {
+							positionalValues = append(positionalValues, arg)
+						}
+					}
+					if i < len(positionalValues) {
+						return positionalValues[i]
+					}
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// sampleFieldValues samples unique values from a field in a data file
+// Uses reservoir sampling for large files to get representative sample
+func sampleFieldValues(filePath, fieldName string, maxSamples, maxRecords int) ([]string, error) {
+	ext := strings.ToLower(filepath.Ext(filePath))
+
+	switch ext {
+	case ".csv":
+		return sampleCSVFieldValues(filePath, fieldName, ',', maxSamples, maxRecords)
+	case ".tsv":
+		return sampleCSVFieldValues(filePath, fieldName, '\t', maxSamples, maxRecords)
+	case ".jsonl", ".ndjson":
+		return sampleJSONLFieldValues(filePath, fieldName, maxSamples, maxRecords)
+	case ".json":
+		// For JSON arrays, treat similar to JSONL
+		return sampleJSONLFieldValues(filePath, fieldName, maxSamples, maxRecords)
+	default:
+		// Unknown extension, try CSV as fallback
+		return sampleCSVFieldValues(filePath, fieldName, ',', maxSamples, maxRecords)
+	}
+}
+
+// sampleCSVFieldValues samples unique values from a CSV/TSV column
+func sampleCSVFieldValues(filePath, fieldName string, delimiter rune, maxSamples, maxRecords int) ([]string, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	reader := csv.NewReader(f)
+	reader.Comma = delimiter
+	reader.TrimLeadingSpace = true
+
+	// Read header to find column index
+	header, err := reader.Read()
+	if err != nil {
+		return nil, err
+	}
+
+	// Find the field index
+	fieldIndex := -1
+	for i, field := range header {
+		if strings.TrimSpace(field) == fieldName {
+			fieldIndex = i
+			break
+		}
+	}
+
+	if fieldIndex == -1 {
+		return nil, fmt.Errorf("field %q not found in header", fieldName)
+	}
+
+	// Use map for unique values (preserves insertion order in Go 1.12+)
+	uniqueValues := make(map[string]bool)
+	recordCount := 0
+
+	// Read records and collect unique values
+	for recordCount < maxRecords {
+		record, err := reader.Read()
+		if err != nil {
+			break // EOF or error
+		}
+
+		recordCount++
+
+		if fieldIndex < len(record) {
+			value := strings.TrimSpace(record[fieldIndex])
+			if value != "" && !uniqueValues[value] {
+				uniqueValues[value] = true
+
+				// Stop if we have enough samples
+				if len(uniqueValues) >= maxSamples {
+					break
+				}
+			}
+		}
+	}
+
+	// Convert map to sorted slice
+	values := make([]string, 0, len(uniqueValues))
+	for value := range uniqueValues {
+		values = append(values, value)
+	}
+	sort.Strings(values)
+
+	return values, nil
+}
+
+// sampleJSONLFieldValues samples unique values from a JSONL field
+func sampleJSONLFieldValues(filePath, fieldName string, maxSamples, maxRecords int) ([]string, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	uniqueValues := make(map[string]bool)
+	recordCount := 0
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() && recordCount < maxRecords {
+		recordCount++
+
+		var obj map[string]interface{}
+		if err := json.Unmarshal(scanner.Bytes(), &obj); err != nil {
+			continue // Skip malformed lines
+		}
+
+		// Extract field value
+		if val, ok := obj[fieldName]; ok && val != nil {
+			// Convert to string
+			valueStr := fmt.Sprintf("%v", val)
+			if valueStr != "" && !uniqueValues[valueStr] {
+				uniqueValues[valueStr] = true
+
+				// Stop if we have enough samples
+				if len(uniqueValues) >= maxSamples {
+					break
+				}
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	// Convert map to sorted slice
+	values := make([]string, 0, len(uniqueValues))
+	for value := range uniqueValues {
+		values = append(values, value)
+	}
+	sort.Strings(values)
+
+	return values, nil
+}
+

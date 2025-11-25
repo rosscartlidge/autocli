@@ -31,17 +31,55 @@ if ! type _autocli_complete &>/dev/null; then
         local output
         output=$(${COMP_WORDS[0]} -complete $COMP_CWORD "${COMP_WORDS[@]:1}" 2>/dev/null)
 
-        # Check for cache directive and extract it
-        # Format: __AUTOCLI_CACHE__:field1,field2,field3
-        if echo "$output" | grep -q "^__AUTOCLI_CACHE__:"; then
-            # Extract cache data and set environment variable
-            local cache_line
-            cache_line=$(echo "$output" | grep "^__AUTOCLI_CACHE__:")
-            local cache_data="${cache_line#__AUTOCLI_CACHE__:}"
-            export AUTOCLI_FIELDS="$cache_data"
+        # Parse JSON directives if jq is available
+        if command -v jq &>/dev/null; then
+            # Process each line that looks like JSON
+            local json_lines non_json_lines
+            json_lines=$(echo "$output" | grep '^{.*}$')
+            non_json_lines=$(echo "$output" | grep -v '^{.*}$')
 
-            # Remove cache directive from completions
-            output=$(echo "$output" | grep -v "^__AUTOCLI_CACHE__:")
+            # Parse JSON directives and export environment variables
+            if [[ -n "$json_lines" ]]; then
+                while IFS= read -r json_line; do
+                    # Parse directive type
+                    local directive_type
+                    directive_type=$(echo "$json_line" | jq -r '.type // empty' 2>/dev/null)
+
+                    case "$directive_type" in
+                        field_cache)
+                            # Export field names as comma-separated list
+                            local fields
+                            fields=$(echo "$json_line" | jq -r '.fields[]? // empty' 2>/dev/null | paste -sd,)
+                            if [[ -n "$fields" ]]; then
+                                export AUTOCLI_FIELDS="$fields"
+                            fi
+                            ;;
+                        field_values)
+                            # Export field values with field-specific env var
+                            local field values
+                            field=$(echo "$json_line" | jq -r '.field // empty' 2>/dev/null)
+                            values=$(echo "$json_line" | jq -r '.values[]? // empty' 2>/dev/null | paste -sd,)
+                            if [[ -n "$field" && -n "$values" ]]; then
+                                # Sanitize field name for env var (replace non-alphanumeric with _)
+                                local safe_field="${field//[^a-zA-Z0-9_]/_}"
+                                export "AUTOCLI_VALUES_${safe_field}=$values"
+                            fi
+                            ;;
+                        env)
+                            # Export custom environment variable
+                            local key value
+                            key=$(echo "$json_line" | jq -r '.key // empty' 2>/dev/null)
+                            value=$(echo "$json_line" | jq -r '.value // empty' 2>/dev/null)
+                            if [[ -n "$key" ]]; then
+                                export "$key=$value"
+                            fi
+                            ;;
+                    esac
+                done <<< "$json_lines"
+            fi
+
+            # Use only non-JSON lines for completions
+            output="$non_json_lines"
         fi
 
         if [[ -n "$output" ]]; then
