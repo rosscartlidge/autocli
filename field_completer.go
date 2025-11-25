@@ -272,7 +272,7 @@ type FieldCacheCompleter struct {
 }
 
 // Complete implements Completer interface
-// Returns JSON cache directive and "DONE" as the only completion option
+// Returns JSON directives for field names AND sampled values for pipeline caching
 func (fcc *FieldCacheCompleter) Complete(ctx CompletionContext) ([]string, error) {
 	// Try to get the file path from the source flag
 	filePath := fcc.getFilePathFromContext(ctx)
@@ -281,12 +281,32 @@ func (fcc *FieldCacheCompleter) Complete(ctx CompletionContext) ([]string, error
 		// Try to extract fields from the file
 		fields, err := extractFields(filePath)
 		if err == nil && len(fields) > 0 {
-			// Return JSON cache directive + "DONE"
-			directive := CompletionDirective{
+			result := []string{}
+
+			// Add field_cache directive
+			fieldCacheDir := &CompletionDirective{
 				Type:   "field_cache",
 				Fields: fields,
 			}
-			return []string{directive.toJSON(), "DONE"}, nil
+			result = append(result, fieldCacheDir.toJSON())
+
+			// Sample values for EACH field and add field_values directives
+			// This enables downstream commands in pipelines to complete field values
+			for _, field := range fields {
+				values, err := sampleFieldValues(filePath, field, 100, 10000)
+				if err == nil && len(values) > 0 {
+					valueDir := &CompletionDirective{
+						Type:   "field_values",
+						Field:  field,
+						Values: values,
+					}
+					result = append(result, valueDir.toJSON())
+				}
+			}
+
+			// Add DONE as the actual completion
+			result = append(result, "DONE")
+			return result, nil
 		}
 	}
 
