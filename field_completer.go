@@ -269,19 +269,50 @@ func (fcc *FieldCacheCompleter) Complete(ctx CompletionContext) ([]string, error
 
 // getFilePathFromContext extracts the file path from the referenced flag
 func (fcc *FieldCacheCompleter) getFilePathFromContext(ctx CompletionContext) string {
-	// Check GlobalFlags for the source flag value
+	// Check GlobalFlags for the source flag value (works for regular flags and parsed positionals)
 	if val, ok := ctx.GlobalFlags[fcc.SourceFlag]; ok && val != nil {
 		if filePath, ok := val.(string); ok {
 			return filePath
 		}
 	}
 
-	// Also check in the current args being parsed
+	// Check in Args for flag-style arguments (e.g., -input file.csv)
 	for i := 0; i < len(ctx.Args)-1; i++ {
 		if ctx.Args[i] == fcc.SourceFlag {
 			// Next arg should be the file path
 			if i+1 < len(ctx.Args) {
 				return ctx.Args[i+1]
+			}
+		}
+	}
+
+	// For positional arguments: find the positional flag spec and get its value from Args
+	if ctx.Command != nil {
+		// Find the positional flag with the matching name
+		var positionals []*FlagSpec
+		for _, spec := range ctx.Command.flags {
+			if spec.isPositional() {
+				positionals = append(positionals, spec)
+			}
+		}
+
+		// Find which positional index our source flag is
+		for i, spec := range positionals {
+			if len(spec.Names) > 0 && spec.Names[0] == fcc.SourceFlag {
+				// This is our positional - get its value from Args[i]
+				if i < len(ctx.Args) {
+					// Skip any flags in Args to find positional values
+					positionalValues := []string{}
+					for _, arg := range ctx.Args {
+						// Skip flags and their arguments
+						if !strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "+") {
+							positionalValues = append(positionalValues, arg)
+						}
+					}
+					if i < len(positionalValues) {
+						return positionalValues[i]
+					}
+				}
 			}
 		}
 	}

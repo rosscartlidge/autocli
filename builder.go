@@ -317,8 +317,7 @@ func (cb *CommandBuilder) CacheFieldsFrom(flagName string) *CommandBuilder {
 		ArgTypes:      []ArgType{ArgString},
 		ArgNames:      []string{"STATUS"},
 		ArgCompleters: []Completer{&FieldCacheCompleter{SourceFlag: flagName}},
-		Hidden:        true, // Hide from help output
-		Description:   "Cache field names for downstream commands (internal use)",
+		Description:   "Cache field names for pipeline (use with DONE)",
 	}
 	cb.cmd.flags = append(cb.cmd.flags, spec)
 	return cb
