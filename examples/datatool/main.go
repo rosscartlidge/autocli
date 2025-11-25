@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	cf "github.com/rosscartlidge/autocli/v3"
+	cf "github.com/rosscartlidge/autocli/v4"
 )
 
 func main() {
