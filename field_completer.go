@@ -15,12 +15,11 @@ import (
 // These are returned alongside regular completions to pass structured data
 // to the bash completion script (requires jq to parse)
 type CompletionDirective struct {
-	Type   string   `json:"type"`            // Directive type: "field_cache", "field_values", "env"
-	Fields []string `json:"fields,omitempty"` // For field_cache: list of field names
-	Field  string   `json:"field,omitempty"`  // For field_values: which field these values are from
-	Values []string `json:"values,omitempty"` // For field_values: the actual values
-	Key    string   `json:"key,omitempty"`    // For env: environment variable name
-	Value  string   `json:"value,omitempty"`  // For env: environment variable value
+	Type     string   `json:"type"`              // Directive type: "field_cache", "env"
+	Fields   []string `json:"fields,omitempty"`   // For field_cache: list of field names
+	Filepath string   `json:"filepath,omitempty"` // For field_cache: absolute path to cache file
+	Key      string   `json:"key,omitempty"`      // For env: environment variable name
+	Value    string   `json:"value,omitempty"`    // For env: environment variable value
 }
 
 // toJSON converts the directive to a JSON string
@@ -272,7 +271,7 @@ type FieldCacheCompleter struct {
 }
 
 // Complete implements Completer interface
-// Returns JSON directives for field names AND sampled values for pipeline caching
+// Returns JSON directive with field names and filepath for pipeline caching
 func (fcc *FieldCacheCompleter) Complete(ctx CompletionContext) ([]string, error) {
 	// Try to get the file path from the source flag
 	filePath := fcc.getFilePathFromContext(ctx)
@@ -281,32 +280,20 @@ func (fcc *FieldCacheCompleter) Complete(ctx CompletionContext) ([]string, error
 		// Try to extract fields from the file
 		fields, err := extractFields(filePath)
 		if err == nil && len(fields) > 0 {
-			result := []string{}
+			// Convert to absolute path for caching
+			absPath, err := filepath.Abs(filePath)
+			if err != nil {
+				absPath = filePath // Fallback to original path
+			}
 
-			// Add field_cache directive
+			// Emit field_cache directive with fields and filepath
 			fieldCacheDir := &CompletionDirective{
-				Type:   "field_cache",
-				Fields: fields,
-			}
-			result = append(result, fieldCacheDir.toJSON())
-
-			// Sample values for EACH field and add field_values directives
-			// This enables downstream commands in pipelines to complete field values
-			for _, field := range fields {
-				values, err := sampleFieldValues(filePath, field, 100, 10000)
-				if err == nil && len(values) > 0 {
-					valueDir := &CompletionDirective{
-						Type:   "field_values",
-						Field:  field,
-						Values: values,
-					}
-					result = append(result, valueDir.toJSON())
-				}
+				Type:     "field_cache",
+				Fields:   fields,
+				Filepath: absPath,
 			}
 
-			// Add DONE as the actual completion
-			result = append(result, "DONE")
-			return result, nil
+			return []string{fieldCacheDir.toJSON(), "DONE"}, nil
 		}
 	}
 
@@ -378,7 +365,7 @@ type FieldValueCompleter struct {
 }
 
 // Complete implements Completer interface
-// Returns JSON directive with sampled field values
+// Returns sampled field values for completion
 func (fvc *FieldValueCompleter) Complete(ctx CompletionContext) ([]string, error) {
 	// Set defaults
 	maxSamples := fvc.MaxSamples
@@ -396,8 +383,21 @@ func (fvc *FieldValueCompleter) Complete(ctx CompletionContext) ([]string, error
 		return []string{"<VALUE>"}, nil
 	}
 
-	// Get the file path from context
-	filePath := fvc.getFilePathFromContext(ctx)
+	// Get the file path from context, fallback to cached file
+	filePath := ""
+
+	// First try GlobalFlags (most reliable source)
+	if val, ok := ctx.GlobalFlags[fvc.SourceFlag]; ok && val != nil {
+		if fp, ok := val.(string); ok && fp != "" {
+			filePath = fp
+		}
+	}
+
+	// Fallback to cached file from environment
+	if filePath == "" {
+		filePath = os.Getenv("AUTOCLI_CACHE_FILE")
+	}
+
 	if filePath == "" {
 		return []string{"<VALUE>"}, nil
 	}
@@ -405,26 +405,11 @@ func (fvc *FieldValueCompleter) Complete(ctx CompletionContext) ([]string, error
 	// Sample field values from the file
 	values, err := sampleFieldValues(filePath, fieldName, maxSamples, maxRecords)
 	if err != nil || len(values) == 0 {
-		// Fallback: check if we have cached values in environment
-		if cached := os.Getenv("AUTOCLI_VALUES_" + sanitizeForEnv(fieldName)); cached != "" {
-			return strings.Split(cached, ","), nil
-		}
 		return []string{"<VALUE>"}, nil
 	}
 
-	// Return JSON directive + filtered values
-	filtered := filterFields(values, ctx.Partial)
-
-	directive := CompletionDirective{
-		Type:   "field_values",
-		Field:  fieldName,
-		Values: values, // All values (not just filtered)
-	}
-
-	result := []string{directive.toJSON()}
-	result = append(result, filtered...)
-
-	return result, nil
+	// Return filtered values directly (no JSON wrapper)
+	return filterFields(values, ctx.Partial), nil
 }
 
 // getFieldNameFromContext extracts the field name from the previous arguments
@@ -475,7 +460,9 @@ func (fvc *FieldValueCompleter) getFilePathFromContext(ctx CompletionContext) st
 	// Check GlobalFlags for the source flag value (works for regular flags and parsed positionals)
 	if val, ok := ctx.GlobalFlags[fvc.SourceFlag]; ok && val != nil {
 		if filePath, ok := val.(string); ok {
-			return filePath
+			if filePath != "" {
+				return filePath
+			}
 		}
 	}
 

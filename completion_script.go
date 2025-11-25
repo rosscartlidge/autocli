@@ -46,22 +46,15 @@ _autocli_complete() {
 
                     case "$directive_type" in
                         field_cache)
-                            # Export field names as comma-separated list
-                            local fields
+                            # Export field names and cache file path
+                            local fields filepath
                             fields=$(echo "$json_line" | jq -r '.fields[]? // empty' 2>/dev/null | paste -sd,)
+                            filepath=$(echo "$json_line" | jq -r '.filepath // empty' 2>/dev/null)
                             if [[ -n "$fields" ]]; then
                                 export AUTOCLI_FIELDS="$fields"
                             fi
-                            ;;
-                        field_values)
-                            # Export field values with field-specific env var
-                            local field values
-                            field=$(echo "$json_line" | jq -r '.field // empty' 2>/dev/null)
-                            values=$(echo "$json_line" | jq -r '.values[]? // empty' 2>/dev/null | paste -sd,)
-                            if [[ -n "$field" && -n "$values" ]]; then
-                                # Sanitize field name for env var (replace non-alphanumeric with _)
-                                local safe_field="${field//[^a-zA-Z0-9_]/_}"
-                                export "AUTOCLI_VALUES_${safe_field}=$values"
+                            if [[ -n "$filepath" ]]; then
+                                export AUTOCLI_CACHE_FILE="$filepath"
                             fi
                             ;;
                         env)
@@ -82,7 +75,13 @@ _autocli_complete() {
         fi
 
         if [[ -n "$output" ]]; then
-            COMPREPLY=($(compgen -W "$output" -- "$cur"))
+            # Read completions line-by-line to handle values with spaces/commas
+            local IFS=$'\n'
+            COMPREPLY=($output)
+            # Filter by current partial input
+            if [[ -n "$cur" ]]; then
+                COMPREPLY=($(compgen -W "${COMPREPLY[*]}" -- "$cur"))
+            fi
         fi
 }
 
