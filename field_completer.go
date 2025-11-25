@@ -409,7 +409,35 @@ func (fvc *FieldValueCompleter) Complete(ctx CompletionContext) ([]string, error
 	}
 
 	// Return filtered values directly (no JSON wrapper)
-	return filterFields(values, ctx.Partial), nil
+	filtered := filterFields(values, ctx.Partial)
+
+	// Escape bash special characters in each value
+	escaped := make([]string, len(filtered))
+	for i, val := range filtered {
+		escaped[i] = escapeBashSpecialChars(val)
+	}
+
+	return escaped, nil
+}
+
+// escapeBashSpecialChars escapes characters that have special meaning in bash
+// This allows completions with spaces, quotes, and other special chars to work correctly
+func escapeBashSpecialChars(s string) string {
+	// Characters that need escaping in bash:
+	// Space, Tab, Newline, $, `, \, ", ', &, |, ;, <, >, (, ), {, }, *, ?, [, ], !, #
+	needsEscape := " \t\n$`\\\"'&|;<>(){}*?[]!#"
+
+	var result strings.Builder
+	result.Grow(len(s) * 2) // Preallocate for potential escaping
+
+	for _, ch := range s {
+		if strings.ContainsRune(needsEscape, ch) {
+			result.WriteRune('\\')
+		}
+		result.WriteRune(ch)
+	}
+
+	return result.String()
 }
 
 // getFieldNameFromContext extracts the field name from the previous arguments
