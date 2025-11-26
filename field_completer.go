@@ -420,24 +420,42 @@ func (fvc *FieldValueCompleter) Complete(ctx CompletionContext) ([]string, error
 	return escaped, nil
 }
 
-// escapeBashSpecialChars escapes characters that have special meaning in bash
-// This allows completions with spaces, quotes, and other special chars to work correctly
+// escapeBashSpecialChars quotes a string for safe use in bash completions
+// Uses single quotes for safety, double quotes if string contains single quotes
 func escapeBashSpecialChars(s string) string {
-	// Characters that need escaping in bash:
-	// Space, Tab, Newline, $, `, \, ", ', &, |, ;, <, >, (, ), {, }, *, ?, [, ], !, #
-	needsEscape := " \t\n$`\\\"'&|;<>(){}*?[]!#"
-
-	var result strings.Builder
-	result.Grow(len(s) * 2) // Preallocate for potential escaping
-
-	for _, ch := range s {
-		if strings.ContainsRune(needsEscape, ch) {
-			result.WriteRune('\\')
+	// If the string is simple (alphanumeric, dash, underscore, dot, slash, colon), no quoting needed
+	needsQuoting := false
+	for _, c := range s {
+		if !isSimpleShellChar(c) {
+			needsQuoting = true
+			break
 		}
-		result.WriteRune(ch)
 	}
 
-	return result.String()
+	if !needsQuoting {
+		return s
+	}
+
+	// If string contains single quotes, use double quotes and escape special chars
+	if strings.Contains(s, "'") {
+		// Use double quotes, escape $, `, \, ", and !
+		escaped := strings.ReplaceAll(s, `\`, `\\`)
+		escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+		escaped = strings.ReplaceAll(escaped, `$`, `\$`)
+		escaped = strings.ReplaceAll(escaped, "`", "\\`")
+		return `"` + escaped + `"`
+	}
+
+	// Otherwise use single quotes (most literal, safest)
+	return "'" + s + "'"
+}
+
+// isSimpleShellChar returns true if the character is safe in shell without quoting
+func isSimpleShellChar(c rune) bool {
+	return (c >= 'a' && c <= 'z') ||
+		(c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') ||
+		c == '-' || c == '_' || c == '.' || c == '/' || c == ':'
 }
 
 // getFieldNameFromContext extracts the field name from the previous arguments
