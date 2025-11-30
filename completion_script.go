@@ -28,7 +28,14 @@ _autocli_complete() {
         # Call the binary with -complete to get completions
         # The binary handles all completion logic internally
         local output
-        output=$(${COMP_WORDS[0]} -complete $COMP_CWORD "${COMP_WORDS[@]:1}" 2>/dev/null)
+        local cmd=("${COMP_WORDS[0]}" -complete "$COMP_CWORD")
+        # Make sure empty args aren't lost when eval-ed
+        for arg in "${COMP_WORDS[@]:1}"; do
+            [[ -z "$arg" ]] && arg="''"
+            cmd+=("$arg")
+        done
+        # Use eval to remove quotes before passing to Go
+        output=$(eval "${cmd[@]}" 2>/dev/null)
 
         # Parse JSON directives if jq is available
         if command -v jq &>/dev/null; then
@@ -75,13 +82,14 @@ _autocli_complete() {
         fi
 
         if [[ -n "$output" ]]; then
-            # Read completions line-by-line to handle values with spaces/commas
+            # Set IFS to newline to preserve spaces in values
             local IFS=$'\n'
-            COMPREPLY=($output)
-            # Filter by current partial input
-            if [[ -n "$cur" ]]; then
-                COMPREPLY=($(compgen -W "${COMPREPLY[*]}" -- "$cur"))
-            fi
+            local completions=( $(compgen -W "$output" -- "$cur") )
+            # Quote each completion for safe shell insertion
+            COMPREPLY=()
+            for item in "${completions[@]}"; do
+                COMPREPLY+=("$(printf "%%q" "$item")")
+            done
         fi
 }
 

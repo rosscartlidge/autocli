@@ -408,54 +408,9 @@ func (fvc *FieldValueCompleter) Complete(ctx CompletionContext) ([]string, error
 		return []string{"<VALUE>"}, nil
 	}
 
-	// Return filtered values directly (no JSON wrapper)
-	filtered := filterFields(values, ctx.Partial)
-
-	// Escape bash special characters in each value
-	escaped := make([]string, len(filtered))
-	for i, val := range filtered {
-		escaped[i] = escapeBashSpecialChars(val)
-	}
-
-	return escaped, nil
-}
-
-// escapeBashSpecialChars quotes a string for safe use in bash completions
-// Uses single quotes for safety, double quotes if string contains single quotes
-func escapeBashSpecialChars(s string) string {
-	// If the string is simple (alphanumeric, dash, underscore, dot, slash, colon), no quoting needed
-	needsQuoting := false
-	for _, c := range s {
-		if !isSimpleShellChar(c) {
-			needsQuoting = true
-			break
-		}
-	}
-
-	if !needsQuoting {
-		return s
-	}
-
-	// If string contains single quotes, use double quotes and escape special chars
-	if strings.Contains(s, "'") {
-		// Use double quotes, escape $, `, \, ", and !
-		escaped := strings.ReplaceAll(s, `\`, `\\`)
-		escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-		escaped = strings.ReplaceAll(escaped, `$`, `\$`)
-		escaped = strings.ReplaceAll(escaped, "`", "\\`")
-		return `"` + escaped + `"`
-	}
-
-	// Otherwise use single quotes (most literal, safest)
-	return "'" + s + "'"
-}
-
-// isSimpleShellChar returns true if the character is safe in shell without quoting
-func isSimpleShellChar(c rune) bool {
-	return (c >= 'a' && c <= 'z') ||
-		(c >= 'A' && c <= 'Z') ||
-		(c >= '0' && c <= '9') ||
-		c == '-' || c == '_' || c == '.' || c == '/' || c == ':'
+	// Return filtered values directly (no JSON wrapper, no quoting)
+	// Bash completion script will handle quoting with printf "%q"
+	return filterFields(values, ctx.Partial), nil
 }
 
 // getFieldNameFromContext extracts the field name from the previous arguments
