@@ -334,12 +334,17 @@ func (cmd *Command) hasSubcommand(name string) bool {
 	return exists
 }
 
-// getSubcommand retrieves a subcommand by name
+// getSubcommand retrieves a subcommand by name (internal use)
 func (cmd *Command) getSubcommand(name string) *Subcommand {
 	if cmd.subcommands == nil {
 		return nil
 	}
 	return cmd.subcommands[name]
+}
+
+// GetSubcommand retrieves a subcommand by name (public API for testing)
+func (cmd *Command) GetSubcommand(name string) *Subcommand {
+	return cmd.getSubcommand(name)
 }
 
 // GenerateHelp generates help text for a subcommand
