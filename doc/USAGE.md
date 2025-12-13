@@ -1683,131 +1683,54 @@ cmd := cf.NewCommand("datatool").
 
 **Note:** For best pipeline support, your program should also set `AUTOCLI_FIELDS` when reading data files during execution, not just during completion.
 
-#### Pipeline Field Caching with CacheFieldsFrom()
+#### Automatic Pipeline Field Caching
 
-**NEW in v3.2.0:** Enable field completion in pipelines where the first command doesn't have FieldsFromFlag().
-
-**The Problem:**
-
-In pipeline scenarios like this:
-```bash
-ssql readcsv users.csv | ssql where -match <TAB>
-```
-
-The first command (`readcsv`) only has a file argument, no fields with `FieldsFromFlag()`. This means the FieldCompleter never runs during the first command's completion, so the cache never gets set, and the second command can't complete field names.
-
-**The Solution:**
-
-Use the `CacheFieldsFrom()` method to add a special `-cache` flag:
-
-```go
-cmd := cf.NewCommand("ssql").
-    Subcommand("readcsv").
-        Flag("FILE").
-            String().
-            FilePattern("*.{csv,tsv,json,jsonl}").
-            Help("Data file to read").
-            Done().
-
-        CacheFieldsFrom("FILE").  // Creates hidden -cache flag
-
-        Handler(func(ctx *cf.Context) error {
-            file := ctx.GetString("FILE", "")
-            // Read and output CSV data...
-            return nil
-        }).
-        Done()
-```
+**NEW in v4.1.0:** Field names are automatically cached when tab-completing a data file to a single match.
 
 **How It Works:**
 
-1. The `CacheFieldsFrom("FILE")` method creates a hidden `-cache` flag
-2. When you tab-complete `-cache <TAB>`, it reads the file and returns:
-   - A cache directive: `__AUTOCLI_CACHE__:field1,field2,field3`
-   - The completion: `DONE`
-3. The bash completion script parses the directive and sets `AUTOCLI_FIELDS`
-4. The `-cache` flag is ignored during actual execution
+When a `FileCompleter` completes to a single data file (CSV, TSV, JSON, JSONL), it automatically:
+1. Extracts field names from the file
+2. Emits a cache directive with the field names
+3. The bash completion script sets `AUTOCLI_FIELDS` for downstream commands
 
-**Usage Pattern:**
+**Example Pipeline:**
 
 ```bash
-# Tab complete on -cache to populate the field cache
-ssql readcsv users.csv -cache <TAB>
-# Completes: DONE
+# Tab complete the filename (narrows to single file)
+ssql from user<TAB>
+# Completes to: users.csv
+# Automatically caches fields: name, age, email, status
 
-# Accept the completion
-ssql readcsv users.csv -cache DONE | ssql where -match <TAB>
-# Now -match can complete field names from the cache!
+# Now use in pipeline - field completion works!
+ssql from users.csv | ssql where -where <TAB>
+# Completes with: name, age, email, status
 ```
 
-**When to Use CacheFieldsFrom():**
+**No Configuration Needed:**
 
-- ✅ Commands that read data files but don't have flags with `FieldsFromFlag()`
-- ✅ First command in a pipeline that produces data for downstream commands
-- ✅ Commands where field completion isn't needed for the command itself, only for piped commands
-
-**When NOT to Use:**
-
-- ❌ Commands that already have flags with `FieldsFromFlag()` (cache is set automatically)
-- ❌ Commands that don't read data files
-- ❌ Last command in a pipeline (it should use `FieldsFromFlag()` instead)
-
-**Complete Pipeline Example:**
+Just use `FilePattern()` with data file extensions:
 
 ```go
-// First command: reads CSV, uses CacheFieldsFrom()
-readcsvCmd := cf.NewCommand("readcsv").
+cmd := cf.NewCommand("readcsv").
     Flag("FILE").
         String().
-        FilePattern("*.csv").
+        FilePattern("*.{csv,tsv,json,jsonl}").
         Done().
-
-    CacheFieldsFrom("FILE").  // Enable cache for pipeline
-
     Handler(func(ctx *cf.Context) error {
         // Read and output CSV...
         return nil
     }).
     Build()
-
-// Second command: filters data, uses FieldsFromFlag()
-whereCmd := cf.NewCommand("where").
-    Flag("-match").
-        Arg("FIELD").
-            FieldsFromFlag("-nonexistent").  // Will fall back to AUTOCLI_FIELDS cache
-            Done().
-        Arg("VALUE").Done().
-        Done().
-
-    Handler(func(ctx *cf.Context) error {
-        // Filter data...
-        return nil
-    }).
-    Build()
 ```
 
-**Usage:**
+Field caching happens automatically when tab completion narrows to a single data file.
 
-```bash
-# Set the cache
-readcsv users.csv -cache DONE | where -match name "Alice"
-#                 ^^^^^^^^^^
-# The -cache DONE triggers field extraction and caching
-# Now -match can complete: name, age, email, etc.
-```
+**Benefits:**
 
-**Alternative Without Cache Flag:**
-
-If you don't use `CacheFieldsFrom()`, users must rely on the second command having an `-input` flag:
-
-```bash
-# Without cache flag - need to specify file in second command
-readcsv users.csv | where -input users.csv -match <TAB>
-#                         ^^^^^^^^^^^^^^^^^^^^
-# Requires duplicating the filename
-```
-
-The `-cache` flag eliminates this duplication and makes pipelines more ergonomic.
+- ✅ No special flags or workflow needed (the old `-cache DONE` pattern is obsolete)
+- ✅ Works with any command that uses `FileCompleter` for data files
+- ✅ Seamless integration with Unix pipeline workflows
 
 #### Field Value Completion with FieldValuesFrom()
 

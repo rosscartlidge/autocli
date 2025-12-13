@@ -893,24 +893,6 @@ func (sfb *SubcommandFlagBuilder) FieldsFromFlag(flagName string) *SubcommandFla
 	return sfb
 }
 
-// CacheFieldsFrom creates a special -cache flag for pipeline field caching
-// The -cache flag reads fields from the referenced flag's file during completion
-// and sets AUTOCLI_FIELDS environment variable for downstream commands
-// Usage: cmd subcommand -input file.csv -cache DONE | cmd2 -field <TAB>
-func (sb *SubcommandBuilder) CacheFieldsFrom(flagName string) *SubcommandBuilder {
-	spec := &FlagSpec{
-		Names:         []string{"-cache"},
-		Scope:         ScopeGlobal,
-		ArgCount:      1,
-		ArgTypes:      []ArgType{ArgString},
-		ArgNames:      []string{"STATUS"},
-		ArgCompleters: []Completer{&FieldCacheCompleter{SourceFlag: flagName}},
-		Description:   "Cache field names for pipeline (use with DONE)",
-	}
-	sb.subcmd.Flags = append(sb.subcmd.Flags, spec)
-	return sb
-}
-
 // Arg starts defining a new argument
 func (sfb *SubcommandFlagBuilder) Arg(name string) *SubcommandArgBuilder {
 	// On first call, clear default setup

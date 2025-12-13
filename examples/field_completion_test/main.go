@@ -20,7 +20,8 @@ func main() {
 			FilePattern("*.{csv,tsv,json,jsonl}").
 			Done().
 
-		CacheFieldsFrom("-input").
+		// Note: Field caching is now automatic when FileCompleter completes a single data file.
+		// Previously used: CacheFieldsFrom("-input").
 
 		Flag("-group").
 			String().

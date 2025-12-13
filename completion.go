@@ -1,6 +1,7 @@
 package completionflags
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,7 +130,38 @@ func (fc *FileCompleter) Complete(ctx CompletionContext) ([]string, error) {
 		return []string{hint}, nil
 	}
 
+	// If single data file match, emit field cache directive for downstream commands
+	// This allows pipelines like: ssql from users.csv<TAB> | ssql where -where <TAB>
+	// to have field completion without explicit -cache DONE step
+	if len(matches) == 1 && !strings.HasSuffix(matches[0], "/") && isDataFile(matches[0]) {
+		fields, err := extractFields(matches[0])
+		if err == nil && len(fields) > 0 {
+			absPath, _ := filepath.Abs(matches[0])
+			directive := CompletionDirective{
+				Type:     "field_cache",
+				Fields:   fields,
+				Filepath: absPath,
+			}
+			directiveJSON, err := json.Marshal(directive)
+			if err == nil {
+				// Prepend directive to matches
+				return append([]string{string(directiveJSON)}, matches...), nil
+			}
+		}
+	}
+
 	return matches, nil
+}
+
+// isDataFile checks if a file extension indicates a data file (CSV, TSV, JSON, JSONL)
+func isDataFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".csv", ".tsv", ".json", ".jsonl", ".ndjson":
+		return true
+	default:
+		return false
+	}
 }
 
 // buildHint constructs a hint showing the expected file pattern
