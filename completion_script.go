@@ -19,78 +19,178 @@ func (cmd *Command) GenerateCompletionScript() string {
 # This script uses a shared completion function (_autocli_complete)
 # that works for all programs built with autocli.
 # This allows bash to load the function once and reuse it for multiple programs.
+#
+# Features:
+# - Process substitution support: completes inside <(...) for nested commands
+# - JSON directive parsing for field caching and environment variables
+# - Handles pipes inside process substitutions
 
 # Define the shared completion function
 _autocli_complete() {
     local cur prev words cword
     cur="${COMP_WORDS[COMP_CWORD]}"
 
-        # Call the binary with -complete to get completions
-        # The binary handles all completion logic internally
-        local output
-        local cmd=("${COMP_WORDS[0]}" -complete "$COMP_CWORD")
-        # Make sure empty args aren't lost when eval-ed
-        for arg in "${COMP_WORDS[@]:1}"; do
+    # Check if we're inside a process substitution <(...)
+    local i in_procsub=0 procsub_start=0 paren_depth=0
+    for ((i=0; i<COMP_CWORD; i++)); do
+        local word="${COMP_WORDS[i]}"
+        if [[ "$word" == "<(" || "$word" == ">(" ]]; then
+            in_procsub=1
+            procsub_start=$((i+1))
+            paren_depth=1
+        elif [[ "$word" == ")" || "$word" == *")" ]] && [[ $in_procsub -eq 1 ]]; then
+            # Word is ")" or ends with ")" - closes process substitution
+            paren_depth=$((paren_depth-1))
+            if [[ $paren_depth -eq 0 ]]; then
+                in_procsub=0
+            fi
+        elif [[ "$word" == *"("* && $in_procsub -eq 1 ]]; then
+            # Nested parentheses - increment depth
+            paren_depth=$((paren_depth+1))
+        fi
+    done
+
+    if [[ $in_procsub -eq 1 && $procsub_start -le $COMP_CWORD ]]; then
+        # We're inside <(...) - but there might be pipes inside
+        # Find the last pipe to get the actual current command
+        local last_pipe=$((procsub_start - 1))
+        for ((i=procsub_start; i<COMP_CWORD; i++)); do
+            if [[ "${COMP_WORDS[i]}" == "|" ]]; then
+                last_pipe=$i
+            fi
+        done
+
+        # The inner command starts after the last pipe (or at procsub_start if no pipe)
+        local cmd_start=$((last_pipe + 1))
+        local inner_cmd="${COMP_WORDS[cmd_start]}"
+        local inner_cword=$((COMP_CWORD - cmd_start))
+
+        # Build the completion command for the inner command
+        local cmd=("$inner_cmd" -complete "$inner_cword")
+        for ((i=cmd_start+1; i<=COMP_CWORD; i++)); do
+            local arg="${COMP_WORDS[i]}"
             [[ -z "$arg" ]] && arg="''"
             cmd+=("$arg")
         done
-        # Use eval to remove quotes before passing to Go
+
+        # Try to get completions from inner command
+        local output
         output=$(eval "${cmd[@]}" 2>/dev/null)
+        local rc=$?
 
-        # Parse JSON directives if jq is available
-        if command -v jq &>/dev/null; then
-            # Process each line that looks like JSON
-            local json_lines non_json_lines
-            json_lines=$(echo "$output" | grep '^{.*}$')
-            non_json_lines=$(echo "$output" | grep -v '^{.*}$')
-
-            # Parse JSON directives and export environment variables
-            if [[ -n "$json_lines" ]]; then
-                while IFS= read -r json_line; do
-                    # Parse directive type
-                    local directive_type
-                    directive_type=$(echo "$json_line" | jq -r '.type // empty' 2>/dev/null)
-
-                    case "$directive_type" in
-                        field_cache)
-                            # Export field names and cache file path
-                            local fields filepath
-                            fields=$(echo "$json_line" | jq -r '.fields[]? // empty' 2>/dev/null | paste -sd,)
-                            filepath=$(echo "$json_line" | jq -r '.filepath // empty' 2>/dev/null)
-                            if [[ -n "$fields" ]]; then
-                                export AUTOCLI_FIELDS="$fields"
-                            fi
-                            if [[ -n "$filepath" ]]; then
-                                export AUTOCLI_CACHE_FILE="$filepath"
-                            fi
-                            ;;
-                        env)
-                            # Export custom environment variable
-                            local key value
-                            key=$(echo "$json_line" | jq -r '.key // empty' 2>/dev/null)
-                            value=$(echo "$json_line" | jq -r '.value // empty' 2>/dev/null)
-                            if [[ -n "$key" ]]; then
-                                export "$key=$value"
-                            fi
-                            ;;
-                    esac
-                done <<< "$json_lines"
-            fi
-
-            # Use only non-JSON lines for completions
-            output="$non_json_lines"
+        # If inner command doesn't support -complete (rc != 0 and no output),
+        # fall back to default bash completion
+        if [[ $rc -ne 0 && -z "$output" ]]; then
+            COMPREPLY=( $(compgen -f -- "$cur") )
+            return
         fi
 
+        # Process output same as normal completion
         if [[ -n "$output" ]]; then
-            # Set IFS to newline to preserve spaces in values
-            local IFS=$'\n'
-            local completions=( $(compgen -W "$output" -- "$cur") )
-            # Quote each completion for safe shell insertion
-            COMPREPLY=()
-            for item in "${completions[@]}"; do
-                COMPREPLY+=("$(printf "%%q" "$item")")
-            done
+            _autocli_process_output "$output"
         fi
+        return
+    fi
+
+    # Check if current word is "<(" - user just opened process substitution
+    # Suggest the outer command as starting point
+    if [[ "$cur" == "<(" ]]; then
+        local outer_cmd="${COMP_WORDS[0]}"
+        COMPREPLY=( "$outer_cmd" )
+        return
+    fi
+
+    # Normal completion - call the binary with -complete
+    # But first, collapse any process substitutions into placeholder file args
+    local collapsed_args=()
+    local collapsed_cword=$COMP_CWORD
+    local skip_until_close=0
+    local skipped=0
+
+    for ((i=1; i<${#COMP_WORDS[@]}; i++)); do
+        local word="${COMP_WORDS[i]}"
+
+        if [[ $skip_until_close -eq 1 ]]; then
+            # Inside a process substitution - skip this word
+            skipped=$((skipped+1))
+            if [[ "$word" == *")" ]]; then
+                skip_until_close=0
+            fi
+            continue
+        fi
+
+        if [[ "$word" == "<(" || "$word" == ">(" ]]; then
+            # Start of process substitution - replace with placeholder
+            skip_until_close=1
+            collapsed_args+=("/dev/fd/63")  # Placeholder for process substitution
+            continue
+        fi
+
+        collapsed_args+=("$word")
+    done
+
+    # Adjust cword for skipped words
+    collapsed_cword=$((COMP_CWORD - skipped))
+
+    local output
+    local cmd=("${COMP_WORDS[0]}" -complete "$collapsed_cword")
+    for arg in "${collapsed_args[@]}"; do
+        [[ -z "$arg" ]] && arg="''"
+        cmd+=("$arg")
+    done
+
+    output=$(eval "${cmd[@]}" 2>/dev/null)
+
+    if [[ -n "$output" ]]; then
+        _autocli_process_output "$output"
+    fi
+}
+
+# Helper function to process completion output (handles JSON directives)
+_autocli_process_output() {
+    local output="$1"
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+
+    # Parse JSON directives if jq is available
+    if command -v jq &>/dev/null; then
+        local json_lines non_json_lines
+        json_lines=$(echo "$output" | grep '^{.*}$')
+        non_json_lines=$(echo "$output" | grep -v '^{.*}$')
+
+        if [[ -n "$json_lines" ]]; then
+            while IFS= read -r json_line; do
+                local directive_type
+                directive_type=$(echo "$json_line" | jq -r '.type // empty' 2>/dev/null)
+
+                case "$directive_type" in
+                    field_cache)
+                        local fields filepath
+                        fields=$(echo "$json_line" | jq -r '.fields[]? // empty' 2>/dev/null | paste -sd,)
+                        filepath=$(echo "$json_line" | jq -r '.filepath // empty' 2>/dev/null)
+                        [[ -n "$fields" ]] && export AUTOCLI_FIELDS="$fields"
+                        [[ -n "$filepath" ]] && export AUTOCLI_CACHE_FILE="$filepath"
+                        ;;
+                    env)
+                        local key value
+                        key=$(echo "$json_line" | jq -r '.key // empty' 2>/dev/null)
+                        value=$(echo "$json_line" | jq -r '.value // empty' 2>/dev/null)
+                        [[ -n "$key" ]] && export "$key=$value"
+                        ;;
+                esac
+            done <<< "$json_lines"
+        fi
+
+        output="$non_json_lines"
+    fi
+
+    if [[ -n "$output" ]]; then
+        local IFS=$'\n'
+        local completions=( $(compgen -W "$output" -- "$cur") )
+        COMPREPLY=()
+        for item in "${completions[@]}"; do
+            COMPREPLY+=("$(printf "%%q" "$item")")
+        done
+    fi
 }
 
 # Register the completion function for this command
