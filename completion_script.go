@@ -73,16 +73,10 @@ _autocli_complete() {
             cmd+=("$arg")
         done
 
-        # Save outer context's cache variables before inner completion
-        local saved_fields="${AUTOCLI_FIELDS:-}"
-        local saved_file="${AUTOCLI_CACHE_FILE:-}"
-
-        # Clear cache variables so inner command starts fresh
-        # (otherwise it falls back to outer context's cached fields)
-        unset AUTOCLI_FIELDS
-        unset AUTOCLI_CACHE_FILE
-
         # Try to get completions from inner command
+        # Note: We let the inner command's cache override the outer cache.
+        # This allows piped commands inside <(...) to share field context.
+        # The outer cache will be refreshed when completing outside the procsub.
         local output
         output=$(eval "${cmd[@]}" 2>/dev/null)
         local rc=$?
@@ -91,23 +85,12 @@ _autocli_complete() {
         # fall back to default bash completion
         if [[ $rc -ne 0 && -z "$output" ]]; then
             COMPREPLY=( $(compgen -f -- "$cur") )
-            # Restore outer context
-            [[ -n "$saved_fields" ]] && export AUTOCLI_FIELDS="$saved_fields"
-            [[ -n "$saved_file" ]] && export AUTOCLI_CACHE_FILE="$saved_file"
             return
         fi
 
         # Process output same as normal completion
         if [[ -n "$output" ]]; then
             _autocli_process_output "$output"
-        fi
-
-        # Restore outer context's cache variables after inner completion
-        if [[ -n "$saved_fields" ]]; then
-            export AUTOCLI_FIELDS="$saved_fields"
-        fi
-        if [[ -n "$saved_file" ]]; then
-            export AUTOCLI_CACHE_FILE="$saved_file"
         fi
         return
     fi
