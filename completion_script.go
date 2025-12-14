@@ -73,10 +73,14 @@ _autocli_complete() {
             cmd+=("$arg")
         done
 
+        # Save outer cache on first entry into process substitution
+        # (so we can restore it when completing outside the procsub later)
+        if [[ -z "${AUTOCLI_OUTER_FIELDS:-}" && -n "${AUTOCLI_FIELDS:-}" ]]; then
+            export AUTOCLI_OUTER_FIELDS="$AUTOCLI_FIELDS"
+            export AUTOCLI_OUTER_CACHE_FILE="${AUTOCLI_CACHE_FILE:-}"
+        fi
+
         # Try to get completions from inner command
-        # Note: We let the inner command's cache override the outer cache.
-        # This allows piped commands inside <(...) to share field context.
-        # The outer cache will be refreshed when completing outside the procsub.
         local output
         output=$(eval "${cmd[@]}" 2>/dev/null)
         local rc=$?
@@ -109,6 +113,11 @@ _autocli_complete() {
     local collapsed_cword=$COMP_CWORD
     local skip_until_close=0
     local skipped=0
+    local has_procsub=0
+
+    # Check if we have saved outer cache from before entering a procsub
+    local outer_fields="${AUTOCLI_OUTER_FIELDS:-}"
+    local outer_file="${AUTOCLI_OUTER_CACHE_FILE:-}"
 
     for ((i=1; i<${#COMP_WORDS[@]}; i++)); do
         local word="${COMP_WORDS[i]}"
@@ -125,12 +134,23 @@ _autocli_complete() {
         if [[ "$word" == "<(" || "$word" == ">(" ]]; then
             # Start of process substitution - replace with placeholder
             skip_until_close=1
+            has_procsub=1
             collapsed_args+=("/dev/fd/63")  # Placeholder for process substitution
             continue
         fi
 
         collapsed_args+=("$word")
     done
+
+    # If there were completed process substitutions, restore the outer cache
+    # that was saved before entering the procsub
+    if [[ $has_procsub -eq 1 && -n "$outer_fields" ]]; then
+        export AUTOCLI_FIELDS="$outer_fields"
+        export AUTOCLI_CACHE_FILE="$outer_file"
+        # Clear the saved outer cache (it's been restored)
+        unset AUTOCLI_OUTER_FIELDS
+        unset AUTOCLI_OUTER_CACHE_FILE
+    fi
 
     # Adjust cword for skipped words
     collapsed_cword=$((COMP_CWORD - skipped))
