@@ -677,9 +677,10 @@ func (cmd *Command) parseSubcommand(subcmd *Subcommand, rootGlobals map[string]i
 	// Create a temporary command with both root global flags and subcommand's flags
 	// This allows root globals to be specified after the subcommand name
 	tempCmd := &Command{
-		name:       subcmd.Name,
-		flags:      append(cmd.rootGlobalFlags(), subcmd.Flags...),
-		separators: subcmd.Separators,
+		name:          subcmd.Name,
+		flags:         append(cmd.rootGlobalFlags(), subcmd.Flags...),
+		separators:    subcmd.Separators,
+		prefixHandler: cmd.prefixHandler,
 	}
 
 	// Parse using standard parser
