@@ -256,7 +256,7 @@ func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, ctx *Conte
 	}
 
 	// Parse arguments
-	if spec.ArgCount == 1 {
+	if spec.ArgCount == 1 && !hasPlus {
 		// Check if we need deferred parsing
 		needsDeferred := spec.ArgTypes[0] == ArgTime && spec.TimeZoneFromFlag != ""
 
