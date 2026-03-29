@@ -451,20 +451,21 @@ func (subcmd *Subcommand) GenerateHelp(parentName string) string {
 		}
 	}
 
-	// Clauses explanation (only show if command has per-clause flags)
-	if len(subcmd.Separators) > 0 && len(localFlags) > 0 {
+	// Clauses explanation
+	if len(localFlags) > 0 {
 		sb.WriteString("CLAUSES:\n")
 		if subcmd.ClauseDescription != "" {
-			// Use custom clause description if provided
 			sb.WriteString("    ")
 			sb.WriteString(subcmd.ClauseDescription)
 			sb.WriteString("\n\n")
 		} else {
-			// Use default clause description
 			sb.WriteString("    Arguments can be grouped into clauses using separators.\n")
 			sb.WriteString(fmt.Sprintf("    Separators: %s\n", strings.Join(subcmd.Separators, ", ")))
 			sb.WriteString("    Each clause is processed independently (typically with OR logic).\n\n")
 		}
+	} else {
+		sb.WriteString("CLAUSES:\n")
+		sb.WriteString("    This command does not support clauses.\n\n")
 	}
 
 	// Examples
