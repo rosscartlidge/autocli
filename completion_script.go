@@ -592,8 +592,30 @@ func (cmd *Command) completeWithSubcommands(args []string, pos int) ([]string, e
 				return tempCmd.completeFlagNames(partial), nil
 			}
 
-			// Complete nested subcommand names
-			return cmd.completeNestedSubcommandNames(leafSubcmd.Subcommands, partial), nil
+			// Complete nested subcommand names, plus positional completions if available
+			matches := cmd.completeNestedSubcommandNames(leafSubcmd.Subcommands, partial)
+
+			// Also run positional flag completers (e.g., FileCompleter on a FILE flag)
+			// so that commands with both subcommands and positional args complete both
+			tempCmd := &Command{
+				name:       leafSubcmd.Name,
+				flags:      append(cmd.rootGlobalFlags(), leafSubcmd.Flags...),
+				separators: leafSubcmd.Separators,
+			}
+			positionalCtx := CompletionContext{
+				Partial:     partial,
+				Args:        remaining[argIndex:],
+				Position:    1,
+				GlobalFlags: make(map[string]interface{}),
+			}
+			for k, v := range rootGlobals {
+				positionalCtx.GlobalFlags[k] = v
+			}
+			if positionalMatches, err := tempCmd.completePositional(positionalCtx); err == nil {
+				matches = append(matches, positionalMatches...)
+			}
+
+			return matches, nil
 		}
 
 		// We have a leaf subcommand, complete its arguments
