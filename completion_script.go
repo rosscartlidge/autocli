@@ -2,6 +2,7 @@ package completionflags
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -221,9 +222,19 @@ complete -F _autocli_complete %s
 `, binaryName, binaryName)
 }
 
-// handleCompletion handles the -complete flag
+// handleCompletion handles the -complete flag, writing one suggestion
+// per line to os.Stdout. Retained for callers that drive the legacy
+// bash protocol; ExecuteWith now routes through handleCompletionTo so
+// embedded callers can capture output to a custom writer.
+//
 // args: [position, arg1, arg2, ...]
 func (cmd *Command) handleCompletion(args []string) error {
+	return cmd.handleCompletionTo(args, os.Stdout)
+}
+
+// handleCompletionTo is the io.Writer-aware variant. Same contract as
+// handleCompletion but writes to the supplied sink.
+func (cmd *Command) handleCompletionTo(args []string, w io.Writer) error {
 	if len(args) < 1 {
 		return fmt.Errorf("completion requires position argument")
 	}
@@ -247,10 +258,29 @@ func (cmd *Command) handleCompletion(args []string) error {
 
 	// Output one per line
 	for _, completion := range completions {
-		fmt.Println(completion)
+		fmt.Fprintln(w, completion)
 	}
 
 	return nil
+}
+
+// Complete returns the completion suggestions for the command-line
+// state described by args + pos, without printing anything.
+//
+//   - args is the same slice the bash protocol passes in: the
+//     command-line words MINUS the program name. So for a user
+//     typing `myprog sub -fla<TAB>` (caret on "fla"), args is
+//     ["sub", "-fla"] and pos = 2 (position in COMP_WORDS, which
+//     includes the program name at index 0).
+//   - The returned slice contains one suggestion string per entry.
+//
+// Side-effect free; safe to call concurrently. Used by the bash
+// completion protocol (via handleCompletion, which prints these
+// suggestions to stdout one per line) and by embedded callers
+// that want the same engine without the shell protocol — readline
+// loops, SSH service consoles, automated tests, etc.
+func (cmd *Command) Complete(args []string, pos int) ([]string, error) {
+	return cmd.complete(args, pos)
 }
 
 // complete generates completions for a given position

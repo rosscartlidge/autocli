@@ -1,7 +1,9 @@
 package completionflags
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -95,6 +97,69 @@ type Context struct {
 	RemainingArgs  []string                  // Arguments after -- (everything after -- is literal)
 	RawArgs        []string                  // Original arguments
 	deferredValues map[string]*deferredValue // Values that need re-parsing after all flags known
+
+	// Optional fields for embedded callers (autocli-shell, SSH service consoles,
+	// tests). Zero values are equivalent to os.Stdin/os.Stdout/os.Stderr +
+	// context.Background() + nil State, which is what the bash-CLI path uses.
+	// Read via the Stdin/Stdout/Stderr/Ctx methods — they fall back to defaults
+	// so handlers don't need nil checks.
+	stdin  io.Reader
+	stdout io.Writer
+	stderr io.Writer
+	ctx    context.Context
+
+	// State is an arbitrary value supplied by the caller (typically a service
+	// holding live data) for handlers to type-assert. Untouched by the dispatch
+	// machinery — purely a passthrough.
+	State any
+}
+
+// Stdin returns the input stream this Context should read from. Defaults to
+// os.Stdin when unset.
+func (c *Context) Stdin() io.Reader {
+	if c == nil || c.stdin == nil {
+		return os.Stdin
+	}
+	return c.stdin
+}
+
+// Stdout returns the output stream this Context should write to. Defaults to
+// os.Stdout when unset.
+func (c *Context) Stdout() io.Writer {
+	if c == nil || c.stdout == nil {
+		return os.Stdout
+	}
+	return c.stdout
+}
+
+// Stderr returns the error stream this Context should write to. Defaults to
+// os.Stderr when unset.
+func (c *Context) Stderr() io.Writer {
+	if c == nil || c.stderr == nil {
+		return os.Stderr
+	}
+	return c.stderr
+}
+
+// Ctx returns the cancellation context handlers should observe. Defaults to
+// context.Background() when unset.
+func (c *Context) Ctx() context.Context {
+	if c == nil || c.ctx == nil {
+		return context.Background()
+	}
+	return c.ctx
+}
+
+// SetStdin / SetStdout / SetStderr / SetCtx let embedded callers override the
+// defaults before dispatch. They're chainable for use in test helpers:
+//
+//	ctx := (&Context{}).SetStdout(&buf).SetStderr(&buf)
+func (c *Context) SetStdin(r io.Reader) *Context  { c.stdin = r; return c }
+func (c *Context) SetStdout(w io.Writer) *Context { c.stdout = w; return c }
+func (c *Context) SetStderr(w io.Writer) *Context { c.stderr = w; return c }
+func (c *Context) SetCtx(x context.Context) *Context {
+	c.ctx = x
+	return c
 }
 
 // deferredValue tracks a value that needs re-parsing after all flags are available

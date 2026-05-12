@@ -7,24 +7,44 @@ import (
 	"time"
 )
 
-// Execute parses arguments and runs the handler
+// Execute parses arguments and runs the handler, using os.Stdin/Stdout/Stderr
+// + context.Background() + nil State for any handler context it builds. This
+// is the bash-CLI entrypoint; embedded callers should use ExecuteWith.
 func (cmd *Command) Execute(args []string) error {
+	return cmd.ExecuteWith(args, nil)
+}
+
+// ExecuteWith parses arguments and runs the handler against the supplied
+// base Context. Help/man/completion-script output goes to base.Stdout()
+// instead of os.Stdout; the same base.Stdin/Stdout/Stderr/Ctx/State values
+// are propagated into the handler's parsed Context so handlers see a single
+// coherent IO environment.
+//
+// Pass nil to use defaults (equivalent to Execute). Pass a *Context built
+// with SetStdout/SetState/SetCtx/etc. to drive autocli from a readline
+// loop, an SSH service console, or a unit test capturing output to a
+// bytes.Buffer.
+func (cmd *Command) ExecuteWith(args []string, base *Context) error {
+	if base == nil {
+		base = &Context{}
+	}
+
 	// Check for special flags first (before subcommand parsing)
 	if len(args) > 0 {
 		switch args[0] {
 		case "-help", "--help", "-h":
-			fmt.Println(cmd.GenerateHelp())
+			fmt.Fprintln(base.Stdout(), cmd.GenerateHelp())
 			return nil
 		case "-man":
-			fmt.Println(cmd.GenerateManPage())
+			fmt.Fprintln(base.Stdout(), cmd.GenerateManPage())
 			return nil
 		case "-complete":
 			if len(args) < 2 {
 				return fmt.Errorf("-complete requires position argument")
 			}
-			return cmd.handleCompletion(args[1:])
+			return cmd.handleCompletionTo(args[1:], base.Stdout())
 		case "-completion-script":
-			fmt.Print(cmd.GenerateCompletionScript())
+			fmt.Fprint(base.Stdout(), cmd.GenerateCompletionScript())
 			return nil
 		}
 	}
@@ -61,10 +81,10 @@ func (cmd *Command) Execute(args []string) error {
 			if argIndex < len(remaining) {
 				switch remaining[argIndex] {
 				case "-help", "--help", "-h":
-					fmt.Println(subcmd.GenerateHelp(cmd.name))
+					fmt.Fprintln(base.Stdout(), subcmd.GenerateHelp(cmd.name))
 					return nil
 				case "-man":
-					fmt.Println(subcmd.GenerateManPage(cmd.name))
+					fmt.Fprintln(base.Stdout(), subcmd.GenerateManPage(cmd.name))
 					return nil
 				}
 			}
@@ -83,7 +103,7 @@ func (cmd *Command) Execute(args []string) error {
 			// Check if this is an intermediate node with no handler
 			if leafSubcmd.Handler == nil && len(leafSubcmd.Subcommands) > 0 {
 				// Intermediate node with no handler - show help
-				fmt.Println(leafSubcmd.GenerateHelp(cmd.name))
+				fmt.Fprintln(base.Stdout(), leafSubcmd.GenerateHelp(cmd.name))
 				return nil
 			}
 
@@ -99,6 +119,7 @@ func (cmd *Command) Execute(args []string) error {
 			}
 
 			ctx.SubcommandPath = path
+			inheritFromBase(ctx, base)
 
 			// Validate
 			if err := cmd.validateSubcommand(leafSubcmd, ctx); err != nil {
@@ -113,7 +134,7 @@ func (cmd *Command) Execute(args []string) error {
 	// No subcommand - execute root handler or show help
 	if cmd.handler == nil {
 		// No handler and no subcommand - show help
-		fmt.Println(cmd.GenerateHelp())
+		fmt.Fprintln(base.Stdout(), cmd.GenerateHelp())
 		return nil
 	}
 
@@ -123,6 +144,8 @@ func (cmd *Command) Execute(args []string) error {
 		return err
 	}
 
+	inheritFromBase(ctx, base)
+
 	// Validate
 	if err := cmd.validate(ctx); err != nil {
 		return err
@@ -130,6 +153,20 @@ func (cmd *Command) Execute(args []string) error {
 
 	// Execute handler
 	return cmd.handler(ctx)
+}
+
+// inheritFromBase copies IO+State+Ctx from a caller-supplied base Context
+// into a parsed handler Context. The dispatch machinery owns Clauses /
+// GlobalFlags / RemainingArgs; the base owns the runtime environment.
+func inheritFromBase(target, base *Context) {
+	if base == nil || target == nil {
+		return
+	}
+	target.stdin = base.stdin
+	target.stdout = base.stdout
+	target.stderr = base.stderr
+	target.ctx = base.ctx
+	target.State = base.State
 }
 
 // Parse breaks arguments into clauses
