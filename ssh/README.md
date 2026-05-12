@@ -55,6 +55,28 @@ $
 
 Try the runnable example: `go run ./_example`.
 
+## Use this as a template
+
+[`_example/main.go`](_example/main.go) is a complete 84-line runnable program — drop it into a new service repo and start replacing the example commands with your own:
+
+```bash
+# Copy the example into a new project
+mkdir myservice && cd myservice
+curl -O https://raw.githubusercontent.com/rosscartlidge/autocli/main/ssh/_example/main.go
+go mod init github.com/me/myservice
+go mod tidy
+
+# Generate keys (one-time setup)
+ssh-keygen -t ed25519 -f ./host_key -N ""    # server's host key (or let the binary auto-generate)
+cp ~/.ssh/id_ed25519.pub ./authorized_keys   # add operator keys
+
+# Run + connect
+go run . -listen :2222 &
+ssh -p 2222 you@127.0.0.1
+```
+
+From there, replace the `service` struct with your real state, replace `status` and `echo` with your own subcommands, and add as many as you need. The example's inline comments call out the patterns that aren't obvious from a single read.
+
 ## Defaults
 
 - **Addr:** `":2222"` (no root needed, not a well-known service port). Override for second-instance deployments — see "Multiple instances on one host" below.
