@@ -11,7 +11,7 @@ A powerful, automatic CLI framework for Go that builds sophisticated command-lin
 - **⚡ Nested Subcommands** - Multi-level command hierarchies (git remote add, docker container exec)
 - **🎯 Three-Level Flag Scoping** - Root global, subcommand global, and per-clause flags
 - **🔧 Fluent Builder API** - Chain methods to configure commands elegantly
-- **🎯 Fluent Arg() API** - Safe, index-free multi-argument configuration (NEW!)
+- **🎯 Fluent Arg() API** - Safe, index-free multi-argument configuration
 - **📋 Clause-based Grouping** - Boolean logic with `+`/`-` separators
 - **✨ Smart Completion** - Context-aware with helpful pattern hints
 - **🔍 Pattern Hints** - Shows `/path/<*.json>` when no files match
@@ -19,7 +19,9 @@ A powerful, automatic CLI framework for Go that builds sophisticated command-lin
 - **🌐 Global vs Local Scope** - Root, subcommand, and per-clause flags
 - **📖 Auto-generated Help** - `-help` and `-man` pages
 - **🚀 Universal Completion** - Single script for all programs
-- **0️⃣ Zero Dependencies** - Pure Go stdlib
+- **🐚 Embedded REPL** - Same command tree drives a local readline shell via `autocli/shell` (sub-module)
+- **🔐 SSH Service Console** - Drop-in operator console over SSH via `autocli/ssh` (sub-module)
+- **0️⃣ Zero Dependencies** - Pure Go stdlib in the core; `shell`/`ssh` sub-modules opt-in their deps
 
 ## Quick Start
 
@@ -292,6 +294,65 @@ myapp -i<TAB>              # completes to -input
 myapp -input <TAB>         # shows *.{json,yaml,xml} files
 myapp -format <TAB>        # shows: json yaml xml
 ```
+
+## Drive Your CLI From Anywhere
+
+Bash completion is one of three ways to drive an autocli command tree. The same command tree can also power:
+
+| Driver | Module | Use case |
+| --- | --- | --- |
+| Bash (`-complete N` protocol) | core `autocli` | Standard CLI tool with tab completion in a shell |
+| Local readline REPL | [`autocli/shell`](shell/README.md) | `myapp shell` interactive sub-mode; embedded interpreter |
+| SSH server (router-style operator console) | [`autocli/ssh`](ssh/README.md) | Long-running services exposing a CLI prompt over `ssh` |
+
+The core APIs that make this work (`Command.Complete(args, pos)` and `Command.ExecuteWith(args, ctx)`, plus `Context.State` for service handles) are documented in `pkg.go.dev`. Existing programs that use the bash path are unaffected.
+
+### autocli/shell — embedded readline REPL
+
+```go
+import (
+    cf "github.com/rosscartlidge/autocli/v4"
+    "github.com/rosscartlidge/autocli/shell"
+)
+
+cli := cf.NewCommand("demo").Subcommand("status")./* … */.Build()
+
+shell.Serve(cli, shell.Options{
+    Prompt:  "demo> ",
+    State:   myServiceState,
+    Welcome: "demo console — :help",
+})
+```
+
+Built-ins: `:exit`, `:quit`, `:help`, `:history`, `:set vi`/`:set emacs`. Same shell quoting rules as the bash CLI path. Sub-module so the `chzyer/readline` dependency stays opt-in.
+
+### autocli/ssh — SSH-accessible operator console
+
+```go
+import ssh "github.com/rosscartlidge/autocli/ssh"
+
+err := ssh.Serve(ctx, cli, ssh.Options{
+    Addr:           ":2222",
+    HostKeyPath:    "/var/lib/myservice/ssh_host_key",
+    AuthorizedKeys: "/etc/myservice/authorized_keys",
+    State:          myServiceState,
+    Welcome:        "myservice console — :help",
+})
+```
+
+Operators connect with their existing keys:
+
+```
+$ ssh -p 2222 alice@host
+myservice console — :help
+> sta<TAB>tus
+running, uptime 3h17m
+> :exit
+```
+
+ed25519 host key auto-generated on first run, persisted with `0600`. OpenSSH `authorized_keys` parsing. Refuses to start with no auth configured (no footgun). See [`ssh/README.md`](ssh/README.md) for the full options, port-configuration patterns, `AuthCallback` hook for key↔username binding, and the threat model around the SSH "username" claim.
+
+A complete real-world consumer is [`ssql serve`](https://github.com/rosscartlidge/ssql) — load a dataset once, expose it via SSH-CLI with zero per-query startup cost.
 
 ## Key Features Explained
 

@@ -126,6 +126,48 @@ cmd := cf.NewCommand("myapp").
 - When passing to `analyzeCompletionContext`, adjust positions carefully
 - See completion_script.go:395 for subcommand position calculation
 
+### 4a. Embedded drivers (v4.5.0+)
+
+The completion engine and dispatch are decoupled from `os.Args` /
+`os.Stdout` / `os.Exit` so the same Command tree can drive non-bash
+interfaces (readline REPL, SSH server, tests, …).
+
+Public APIs added in v4.5.0:
+
+- `Command.Complete(args, pos) ([]string, error)` — pure completion
+  engine, side-effect free, concurrent-safe. The bash `-complete N`
+  protocol is now a thin wrapper that prints the results.
+- `Command.ExecuteWith(args, base *Context) error` — dispatch using
+  the caller-supplied Context for IO/State/Ctx. `Execute(args)`
+  keeps working as a wrapper that uses `os.*` defaults.
+- `Context.Stdin()/Stdout()/Stderr()/Ctx()` accessors with matching
+  `Set*` setters; `Context.State any` pass-through field.
+
+Zero-value Context still defaults to `os.*` — bash CLI path
+unchanged. Handlers should read `ctx.Stdout()` / `ctx.State`
+instead of `os.Stdout` / a global so they work under either driver.
+
+**Sub-modules (own go.mod each — opt-in deps):**
+
+- `github.com/rosscartlidge/autocli/shell` (v0.1.1) — `chzyer/readline`
+  loop. TAB → `cli.Complete`, Enter → `cli.ExecuteWith`. Built-in
+  `:exit`, `:help`, `:history`, `:set vi/emacs` commands. Sub-module
+  lives at `shell/` (the `/v4` is intentionally absent from its
+  module path because Go's tooling expects filesystem layout to
+  mirror module path for nested modules under `/vN` parents).
+- `github.com/rosscartlidge/autocli/ssh` (v0.1.0) — wraps
+  `golang.org/x/crypto/ssh` around `autocli/shell`. ed25519 host
+  key load-or-generate, OpenSSH `authorized_keys` parsing,
+  `AuthCallback` override hook, graceful shutdown via ctx + grace
+  timeout, `ConnMeta` for audit hooks. Refuse-to-start safety:
+  empty auth config errors before binding.
+
+**Known issue:** `chzyer/readline.SetVimMode` races with its own
+input goroutine when called at runtime (library bug). The `shell`
+module works around it by deferring runtime mode switches to next
+session; immediate bookkeeping update keeps per-user prefs
+persistence working.
+
 ### 5. Unix `--` Convention
 
 **Implementation**: parser.go detects `--` and stops all parsing
