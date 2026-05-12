@@ -1,4 +1,4 @@
-module github.com/rosscartlidge/autocli/v4/shell
+module github.com/rosscartlidge/autocli/shell
 
 go 1.24.8
 

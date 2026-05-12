@@ -21,7 +21,7 @@ import (
 	"time"
 
 	cf "github.com/rosscartlidge/autocli/v4"
-	"github.com/rosscartlidge/autocli/v4/shell"
+	"github.com/rosscartlidge/autocli/shell"
 )
 
 type service struct {
