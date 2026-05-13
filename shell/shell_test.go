@@ -184,6 +184,44 @@ func TestServe_HandlerErrorContinues(t *testing.T) {
 	}
 }
 
+// TestServe_UnknownCommandShowsFriendlyError asserts that typing
+// a non-flag word that isn't a registered subcommand produces a
+// "unknown command: …" line rather than dumping the full autocli
+// help screen. Validates the v4.6.0 ErrUnknownCommand path.
+func TestServe_UnknownCommandShowsFriendlyError(t *testing.T) {
+	cli := buildTestCLI(&testState{})
+
+	out := runShellWithInput(t, cli, Options{}, "junk\n:exit\n")
+
+	if !strings.Contains(out, "unknown command") {
+		t.Errorf("expected friendly unknown-command message; got: %q", out)
+	}
+	// And specifically NOT the bash-completion footer that would have
+	// shown up if autocli's GenerateHelp() fell through.
+	if strings.Contains(out, "SHELL COMPLETION") {
+		t.Errorf("unknown command path leaked bash help: %q", out)
+	}
+}
+
+// TestServe_DashHelpUsesEmbeddedForm asserts typing `-help` at the
+// prompt emits the embedded help (no SHELL COMPLETION footer / no
+// -man reference) rather than the bash flavoured form.
+func TestServe_DashHelpUsesEmbeddedForm(t *testing.T) {
+	cli := buildTestCLI(&testState{})
+
+	out := runShellWithInput(t, cli, Options{}, "-help\n:exit\n")
+
+	if !strings.Contains(out, "COMMANDS:") {
+		t.Errorf("expected -help to print the COMMANDS section; got: %q", out)
+	}
+	if strings.Contains(out, "SHELL COMPLETION") {
+		t.Errorf("-help leaked the bash-completion footer: %q", out)
+	}
+	if strings.Contains(out, "-man") {
+		t.Errorf("-help mentioned -man (bash-only feature): %q", out)
+	}
+}
+
 // TestServe_EOFExits asserts Ctrl-D (EOF on stdin) ends the loop.
 func TestServe_EOFExits(t *testing.T) {
 	state := &testState{}

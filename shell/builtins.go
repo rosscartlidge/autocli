@@ -86,13 +86,16 @@ func dispatchSet(args []string, rl *readline.Instance, opts *Options) bool {
 func builtinHelpText() string {
 	return strings.TrimLeft(`
 shell built-ins (start with :)
-  :help              show this help
-  :exit / :quit      close the session
+  :help              show this help (built-ins only)
+  :exit / :quit / :q close the session
   :history           show session history info
   :set               show current editing mode
-  :set vi            switch to vi keybindings
-  :set emacs         switch to emacs keybindings (default)
+  :set vi            switch to vi keybindings (next session)
+  :set emacs         switch to emacs keybindings (next session, default)
 
-everything else routes to the autocli command tree.
+For the available service commands type:
+  -help              full command tree with descriptions
+  <command> -help    detailed help for one command
+  <TAB><TAB>         autocomplete options at the current position
 `, "\n")
 }

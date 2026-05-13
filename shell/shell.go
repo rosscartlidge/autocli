@@ -13,6 +13,7 @@ package shell
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +22,18 @@ import (
 	"github.com/chzyer/readline"
 	cf "github.com/rosscartlidge/autocli/v4"
 )
+
+// isHelpToken returns true for the conventional help-request words
+// users might type at a prompt. `help` is included so users without
+// the dash habit don't get told their command is unknown when they
+// were really asking for the menu.
+func isHelpToken(s string) bool {
+	switch s {
+	case "-help", "--help", "-h", "help", "?":
+		return true
+	}
+	return false
+}
 
 // EditingMode selects the readline keybinding set.
 type EditingMode int
@@ -162,13 +175,29 @@ func Serve(cli *cf.Command, opts Options) error {
 			}
 			continue
 		}
+
+		// Intercept top-level help requests and emit the embedded
+		// help text (no bash-completion footer / -man reference) —
+		// the regular autocli path would dump the bash-flavoured form.
+		if len(args) == 1 && isHelpToken(args[0]) {
+			fmt.Fprintln(opts.Stdout, cli.GenerateHelpEmbedded())
+			continue
+		}
+
 		base := (&cf.Context{State: opts.State}).
 			SetStdin(opts.Stdin).
 			SetStdout(opts.Stdout).
 			SetStderr(opts.Stderr).
 			SetCtx(opts.Ctx)
 		if err := cli.ExecuteWith(args, base); err != nil {
-			fmt.Fprintf(opts.Stderr, "%v\n", err)
+			// Friendly message for unknown commands instead of dumping
+			// the full help screen on every typo.
+			var unknown cf.ErrUnknownCommand
+			if errors.As(err, &unknown) {
+				fmt.Fprintf(opts.Stderr, "unknown command: %q (try -help or :help)\n", string(unknown))
+			} else {
+				fmt.Fprintf(opts.Stderr, "%v\n", err)
+			}
 			if opts.OnError != nil {
 				opts.OnError(err)
 			}
