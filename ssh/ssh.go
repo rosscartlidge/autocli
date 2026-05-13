@@ -253,14 +253,23 @@ func ServeListener(ctx context.Context, ln net.Listener, cli *cf.Command, opts O
 
 func serveListener(ctx context.Context, ln net.Listener, cli *cf.Command, opts *Options, sshCfg *gossh.ServerConfig) error {
 	var wg sync.WaitGroup
+	tracker := newConnTracker()
 
-	// Close the listener when ctx cancels; that unblocks Accept().
+	// Close the listener AND force-close all active SSH connections
+	// when ctx cancels. Closing the listener unblocks Accept(); closing
+	// active conns unblocks readline.Readline() in each session
+	// goroutine with EOF (it returns io.EOF, shell.Serve's loop breaks,
+	// the goroutine returns, wg.Wait() falls through). Without the
+	// force-close, idle sessions sitting in Readline() would hold the
+	// GraceTimeout open every shutdown — a 5-second Ctrl-C wait for
+	// what should be instant.
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
 		select {
 		case <-ctx.Done():
 			ln.Close()
+			tracker.closeAll()
 		case <-done:
 		}
 	}()
@@ -278,7 +287,7 @@ func serveListener(ctx context.Context, ln net.Listener, cli *cf.Command, opts *
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			handleConn(ctx, conn, cli, opts, sshCfg)
+			handleConn(ctx, conn, cli, opts, sshCfg, tracker)
 		}()
 	}
 
@@ -300,7 +309,7 @@ func serveListener(ctx context.Context, ln net.Listener, cli *cf.Command, opts *
 // channel. Each connection runs in its own goroutine; errors are
 // logged via opts.Logger but don't propagate (Serve must keep
 // accepting).
-func handleConn(ctx context.Context, conn net.Conn, cli *cf.Command, opts *Options, sshCfg *gossh.ServerConfig) {
+func handleConn(ctx context.Context, conn net.Conn, cli *cf.Command, opts *Options, sshCfg *gossh.ServerConfig, tracker *connTracker) {
 	defer conn.Close()
 	serverConn, chans, reqs, err := gossh.NewServerConn(conn, sshCfg)
 	if err != nil {
@@ -308,6 +317,10 @@ func handleConn(ctx context.Context, conn net.Conn, cli *cf.Command, opts *Optio
 		return
 	}
 	defer serverConn.Close()
+
+	// Register with the tracker so ctx-cancel can force-close us.
+	tracker.add(serverConn)
+	defer tracker.remove(serverConn)
 
 	// Discard global requests (keepalive etc.).
 	go gossh.DiscardRequests(reqs)

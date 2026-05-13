@@ -253,6 +253,43 @@ func TestServe_HostKeyGeneratedOnFirstRun(t *testing.T) {
 	}
 }
 
+// TestServe_ShutdownForceClosesActiveSession asserts the v0.1.4
+// behaviour: ctx-cancel force-closes active SSH connections so
+// idle sessions sitting in readline.Readline() don't hold the
+// shutdown open. With the default GraceTimeout (5s), the server
+// should still exit in well under 1 second when only an idle
+// session is connected.
+func TestServe_ShutdownForceClosesActiveSession(t *testing.T) {
+	dir, signer, authKeys := setupTestKeys(t)
+	addr, stop := startTestServer(t, pingCommand(), Options{
+		HostKeyPath:    filepath.Join(dir, "host_key"),
+		AuthorizedKeys: authKeys,
+		// Deliberately leave GraceTimeout at default (5s) so a
+		// regression that re-introduces the "wait for sessions"
+		// behaviour would show as a >1s shutdown.
+	})
+
+	client := dialTestClient(t, addr, signer)
+	sess, _ := client.NewSession()
+	sess.Stdout = io.Discard
+	sess.Stderr = io.Discard
+	if _, err := sess.StdinPipe(); err != nil {
+		t.Fatalf("stdin: %v", err)
+	}
+	if err := sess.Shell(); err != nil {
+		t.Fatalf("shell: %v", err)
+	}
+	// Session is now idle in readline.Readline().
+
+	t0 := time.Now()
+	stop()
+	elapsed := time.Since(t0)
+	if elapsed > time.Second {
+		t.Errorf("force-close shutdown took %v, want <1s — likely regression to grace-wait behaviour", elapsed)
+	}
+	client.Close()
+}
+
 // TestServe_GracefulShutdown asserts a cancelled ctx returns from
 // Serve within the grace timeout even with an open session.
 func TestServe_GracefulShutdown(t *testing.T) {
