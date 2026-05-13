@@ -403,8 +403,8 @@ func handleSession(ctx context.Context, ch gossh.Channel, reqs <-chan *gossh.Req
 		State:       sessionState,
 		Welcome:     opts.Welcome,
 		Stdin:       io.NopCloser(ch),
-		Stdout:      ch,
-		Stderr:      ch.Stderr(),
+		Stdout:      crlfWriter{ch},
+		Stderr:      crlfWriter{ch.Stderr()},
 		Ctx:         ctx,
 	}
 	if opts.HistoryDir != "" {
