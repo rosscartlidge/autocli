@@ -358,6 +358,32 @@ func (e ValidationError) Error() string {
 	return fmt.Sprintf("validation failed: %s", e.Message)
 }
 
+// ErrUnknownCommand is returned from ExecuteWith when args[0] looks
+// like a subcommand attempt (a non-flag token) but doesn't match any
+// registered subcommand, and the root command has no handler that
+// could otherwise consume positional arguments.
+//
+// Embedded shells (autocli/shell, autocli/ssh) use this to print a
+// friendly "unknown command: 'X' (try -help)" message instead of
+// dumping the full help screen on every typo. The bash CLI
+// entrypoint also benefits — failing loudly on invalid input is
+// better than silently showing usage and exiting 0.
+//
+// The string value is the unrecognised token. Test with errors.As
+// or a type assertion:
+//
+//	if err := cmd.ExecuteWith(args, ctx); err != nil {
+//	    var unknown ErrUnknownCommand
+//	    if errors.As(err, &unknown) {
+//	        fmt.Fprintf(os.Stderr, "no such command: %s\n", string(unknown))
+//	    }
+//	}
+type ErrUnknownCommand string
+
+func (e ErrUnknownCommand) Error() string {
+	return fmt.Sprintf("unknown command: %q (try -help)", string(e))
+}
+
 // defaultPrefixHandler is used when no custom prefix handler is set
 // It simply returns the value unchanged, ignoring the prefix
 func defaultPrefixHandler(flagName string, hasPlus bool, value interface{}) interface{} {

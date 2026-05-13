@@ -131,9 +131,26 @@ func (cmd *Command) ExecuteWith(args []string, base *Context) error {
 		}
 	}
 
-	// No subcommand - execute root handler or show help
+	// No subcommand. Two cases:
+	//   1) args[0] looks like a subcommand attempt (not a flag, has
+	//      content) and there's no root handler → unknown command.
+	//      Return ErrUnknownCommand so callers can react (embedded
+	//      shells, structured logs, exit code), per the CLAUDE.md
+	//      "fail loudly on invalid input" rule. The bash CLI
+	//      entry-point catches this and falls back to printing help
+	//      (the previous behaviour, preserved for backwards compat).
+	//   2) Either no args at all, or args is just flags, or there is
+	//      a root handler → fall through to existing paths.
+	if cmd.handler == nil && len(remaining) > 0 {
+		first := remaining[0]
+		if !strings.HasPrefix(first, "-") && !strings.HasPrefix(first, "+") {
+			return ErrUnknownCommand(first)
+		}
+	}
+
 	if cmd.handler == nil {
-		// No handler and no subcommand - show help
+		// Bare `myapp` or `myapp -globalflag` with no root handler
+		// → show help, same as before.
 		fmt.Fprintln(base.Stdout(), cmd.GenerateHelp())
 		return nil
 	}

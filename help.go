@@ -5,11 +5,27 @@ import (
 	"strings"
 )
 
-// GenerateHelp generates usage text for -help
+// GenerateHelp generates usage text for -help, including the bash-
+// completion-script footer and `-man` reference. This is the form
+// shown when a user runs `myapp -help` from a real shell.
 func (cmd *Command) GenerateHelp() string {
+	return cmd.generateHelp(false)
+}
+
+// GenerateHelpEmbedded generates usage text for embedded shell
+// drivers (autocli/shell, autocli/ssh). Omits the bash-completion-
+// script footer and the `<name> -man` reference because neither
+// applies inside an interactive in-process session: tab-completion
+// already works via cli.Complete, and there's no man-page renderer
+// at the prompt.
+func (cmd *Command) GenerateHelpEmbedded() string {
+	return cmd.generateHelp(true)
+}
+
+func (cmd *Command) generateHelp(embedded bool) string {
 	// If we have subcommands, generate subcommand-aware help
 	if len(cmd.subcommands) > 0 {
-		return cmd.generateHelpWithSubcommands()
+		return cmd.generateHelpWithSubcommands(embedded)
 	}
 
 	// Standard help generation (no subcommands)
@@ -107,13 +123,15 @@ func (cmd *Command) GenerateHelp() string {
 	}
 
 	// Footer
-	sb.WriteString(fmt.Sprintf("Use '%s -man' to view the full manual page.\n", cmd.name))
+	if !embedded {
+		sb.WriteString(fmt.Sprintf("Use '%s -man' to view the full manual page.\n", cmd.name))
+	}
 
 	return sb.String()
 }
 
 // generateHelpWithSubcommands generates help for a command with subcommands
-func (cmd *Command) generateHelpWithSubcommands() string {
+func (cmd *Command) generateHelpWithSubcommands(embedded bool) string {
 	var sb strings.Builder
 
 	// Header
@@ -163,12 +181,16 @@ func (cmd *Command) generateHelpWithSubcommands() string {
 	}
 
 	// Footer
-	sb.WriteString(fmt.Sprintf("Use '%s <command> -help' for detailed help on a specific command.\n", cmd.name))
-	sb.WriteString(fmt.Sprintf("Use '%s -man' to view the full manual page.\n", cmd.name))
-	sb.WriteString("\n")
-	sb.WriteString("SHELL COMPLETION:\n")
-	sb.WriteString(fmt.Sprintf("    To enable tab completion, add to your ~/.bashrc:\n"))
-	sb.WriteString(fmt.Sprintf("        eval \"$(%s -completion-script)\"\n", cmd.name))
+	if embedded {
+		sb.WriteString("Use '<command> -help' for detailed help on a specific command.\n")
+	} else {
+		sb.WriteString(fmt.Sprintf("Use '%s <command> -help' for detailed help on a specific command.\n", cmd.name))
+		sb.WriteString(fmt.Sprintf("Use '%s -man' to view the full manual page.\n", cmd.name))
+		sb.WriteString("\n")
+		sb.WriteString("SHELL COMPLETION:\n")
+		sb.WriteString("    To enable tab completion, add to your ~/.bashrc:\n")
+		sb.WriteString(fmt.Sprintf("        eval \"$(%s -completion-script)\"\n", cmd.name))
+	}
 
 	return sb.String()
 }
