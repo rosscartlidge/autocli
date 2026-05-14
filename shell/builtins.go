@@ -62,21 +62,27 @@ func dispatchSet(args []string, rl *readline.Instance, opts *Options) bool {
 		fmt.Fprintf(opts.Stdout, "editing-mode: %s\n", mode)
 		return true
 	}
+	persistAndNotify := func(prev, next EditingMode, label string) {
+		opts.EditingMode = next
+		fmt.Fprintf(opts.Stdout, "editing-mode: %s\n", label)
+		if prev == next {
+			return
+		}
+		switch err := savePrefs(opts.PrefsFile, next); {
+		case opts.PrefsFile == "":
+			fmt.Fprintln(opts.Stdout, "(this session only — no PrefsFile configured)")
+		case err != nil:
+			fmt.Fprintf(opts.Stderr, "(saved in-memory only — error writing %s: %v)\n", opts.PrefsFile, err)
+		default:
+			fmt.Fprintln(opts.Stdout, "(saved — takes effect on next session)")
+		}
+	}
+
 	switch args[0] {
 	case "vi":
-		prev := opts.EditingMode
-		opts.EditingMode = EditingVi
-		fmt.Fprintln(opts.Stdout, "editing-mode: vi")
-		if prev != EditingVi {
-			fmt.Fprintln(opts.Stdout, "(takes effect on next session)")
-		}
+		persistAndNotify(opts.EditingMode, EditingVi, "vi")
 	case "emacs":
-		prev := opts.EditingMode
-		opts.EditingMode = EditingEmacs
-		fmt.Fprintln(opts.Stdout, "editing-mode: emacs")
-		if prev != EditingEmacs {
-			fmt.Fprintln(opts.Stdout, "(takes effect on next session)")
-		}
+		persistAndNotify(opts.EditingMode, EditingEmacs, "emacs")
 	default:
 		fmt.Fprintf(opts.Stderr, ":set: unknown option %q (try vi or emacs)\n", args[0])
 	}

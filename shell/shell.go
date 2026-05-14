@@ -56,8 +56,21 @@ type Options struct {
 	HistoryFile string
 
 	// EditingMode picks emacs (default) or vi keybindings at startup.
-	// Operators flip at runtime with :set vi / :set emacs.
+	// Operators flip at runtime with :set vi / :set emacs — the choice
+	// is written back to PrefsFile so the next session reads it.
+	// Currently :set takes effect on next session, not mid-session,
+	// because chzyer/readline's runtime SetVimMode races with its own
+	// input goroutine. See shell/README.md "Editing modes".
 	EditingMode EditingMode
+
+	// PrefsFile, if non-empty, is the path to a per-user JSON file
+	// holding shell preferences (currently just the editing mode).
+	// Serve reads it on session start (any value found overrides
+	// Options.EditingMode); :set vi/emacs writes it back. Empty =
+	// no persistence, :set only affects the current session's
+	// bookkeeping. autocli/ssh sets this per-session under
+	// Options.HistoryDir/$user/prefs.json when HistoryDir is set.
+	PrefsFile string
 
 	// State is the caller-supplied service handle threaded through to
 	// every handler via Context.State. Type-asserted by the handler.
@@ -105,6 +118,13 @@ func Serve(cli *cf.Command, opts Options) error {
 	}
 	if opts.Ctx == nil {
 		opts.Ctx = context.Background()
+	}
+
+	// Per-user prefs override Options.EditingMode when present.
+	// The :set vi/emacs builtin writes back to the same file so the
+	// next session opens in the chosen mode.
+	if mode, ok := loadPrefs(opts.PrefsFile); ok {
+		opts.EditingMode = mode
 	}
 
 	stdinCloser, _ := opts.Stdin.(io.ReadCloser)
