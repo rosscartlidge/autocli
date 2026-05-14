@@ -136,3 +136,31 @@ func TestErrUnknownCommand_NotForRootHandler(t *testing.T) {
 		t.Error("root handler not called")
 	}
 }
+
+// TestComplete_DashHIncludesHelp asserts that -h at the root of a
+// subcommand-having command completes the built-in -help. Previously
+// completeRootGlobalFlags walked only user-declared global flags and
+// missed the built-ins, even though the leaf-level completer (after
+// a subcommand name) included them — typing `myapp -h<TAB>` was
+// inconsistent with `myapp sub -h<TAB>`.
+func TestComplete_DashHIncludesHelp(t *testing.T) {
+	cmd := NewCommand("myapp").
+		Subcommand("ping").
+		Handler(func(ctx *Context) error { return nil }).
+		Done().
+		Build()
+
+	got, err := cmd.Complete([]string{"-h"}, 1)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	found := map[string]bool{}
+	for _, c := range got {
+		found[c] = true
+	}
+	for _, w := range []string{"-help", "-h"} {
+		if !found[w] {
+			t.Errorf("-h<TAB> missing %q in %v", w, got)
+		}
+	}
+}

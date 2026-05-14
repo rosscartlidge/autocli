@@ -706,6 +706,16 @@ func (cmd *Command) completeRootGlobalFlags(partial string) []string {
 		}
 	}
 
+	// Add built-in flags — same set the leaf-level completer includes.
+	// Without these, typing `-h<TAB>` at the root of a subcommand-having
+	// command misses the built-in -help, even though typing the same
+	// thing after a subcommand name works correctly.
+	for _, builtin := range []string{"-help", "--help", "-h", "-man", "-completion-script"} {
+		if partialLower == "" || partialLower == "-" || strings.HasPrefix(builtin, partialLower) {
+			matches = append(matches, builtin)
+		}
+	}
+
 	return matches
 }
 
