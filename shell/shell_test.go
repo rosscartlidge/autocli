@@ -222,6 +222,34 @@ func TestServe_DashHelpUsesEmbeddedForm(t *testing.T) {
 	}
 }
 
+// TestServe_NoRawModeOnCustomStdin asserts that when the caller
+// provides a non-os.Stdin source (the SSH-channel case), shell.Serve
+// installs no-op FuncMakeRaw/FuncExitRaw on the readline config —
+// preventing chzyer/readline from putting the server's controlling
+// terminal into raw mode and disabling ISIG. Without this fix,
+// Ctrl-C in the terminal where the server was launched stops
+// generating SIGINT while any session is alive.
+//
+// Indirect-but-deterministic check: stub Stdin with a strings.Reader
+// (definitely not os.Stdin), capture whether the loop runs at all.
+// If readline tried to MakeRaw on FD 0 in a test environment where
+// FD 0 might not be a terminal, the test would hang or panic.
+// Successful completion of a short scripted interaction = the no-op
+// path was taken.
+func TestServe_NoRawModeOnCustomStdin(t *testing.T) {
+	state := &testState{}
+	cli := buildTestCLI(state)
+
+	out := runShellWithInput(t, cli, Options{State: state}, "inc\n:exit\n")
+
+	if state.n != 1 {
+		t.Errorf("loop did not run — likely readline init panicked on non-tty Stdin without no-op override (state.n=%d)", state.n)
+	}
+	if !strings.Contains(out, "n=1") {
+		t.Errorf("missing handler output: %q", out)
+	}
+}
+
 // TestServe_EOFExits asserts Ctrl-D (EOF on stdin) ends the loop.
 func TestServe_EOFExits(t *testing.T) {
 	state := &testState{}

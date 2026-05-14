@@ -143,6 +143,24 @@ func Serve(cli *cf.Command, opts Options) error {
 
 		AutoComplete: &autocliCompleter{cli: cli},
 	}
+
+	// chzyer/readline always calls MakeRaw on os.Stdin (FD 0)
+	// regardless of Config.Stdin — its GetStdin() hardcodes
+	// syscall.Stdin. When we're driving readline from an SSH channel
+	// (not os.Stdin), that puts the SERVER process's controlling
+	// terminal into raw mode, which disables ISIG, which makes
+	// Ctrl-C in the terminal where `myapp` was launched stop
+	// generating SIGINT. `kill -INT` still works because it bypasses
+	// the tty driver, but Ctrl-C silently becomes a literal byte.
+	//
+	// Detect non-os.Stdin and override FuncMakeRaw/FuncExitRaw to
+	// no-ops — the SSH client side already manages its own terminal
+	// (it put the user's local terminal in raw mode for the session),
+	// so the server side shouldn't touch any termios.
+	if opts.Stdin != os.Stdin {
+		rlCfg.FuncMakeRaw = func() error { return nil }
+		rlCfg.FuncExitRaw = func() error { return nil }
+	}
 	rl, err := readline.NewEx(rlCfg)
 	if err != nil {
 		return fmt.Errorf("shell: readline init: %w", err)
