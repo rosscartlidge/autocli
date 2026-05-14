@@ -95,8 +95,12 @@ type Options struct {
 	Welcome string
 
 	// HistoryDir, if non-empty, is the parent directory for per-user
-	// command history files. Each session writes to
-	// HistoryDir/$USER/history.  Empty = no persistent history.
+	// shell state — command history and editor preferences. Each
+	// session writes to:
+	//   HistoryDir/$USER/history    command history
+	//   HistoryDir/$USER/prefs.json :set vi/emacs choice
+	// Empty = no persistence; history is session-only and :set is
+	// in-memory bookkeeping only.
 	HistoryDir string
 
 	// EditingMode picks emacs (default) or vi keybindings.
@@ -421,13 +425,15 @@ func handleSession(ctx context.Context, ch gossh.Channel, reqs <-chan *gossh.Req
 		Ctx:         ctx,
 	}
 	if opts.HistoryDir != "" {
-		// Per-user history under the supplied directory. User string
-		// is used as-is; service authors are responsible for
+		// Per-user history + prefs under the supplied directory. User
+		// string is used as-is; service authors are responsible for
 		// validating it (no path-traversal worry by default — but
 		// reject `..` etc. if needed via AuthCallback).
-		shellOpts.HistoryFile = opts.HistoryDir + "/" + meta.User + "/history"
+		userDir := opts.HistoryDir + "/" + meta.User
 		// Ensure dir exists; best-effort.
-		_ = os.MkdirAll(opts.HistoryDir+"/"+meta.User, 0o700)
+		_ = os.MkdirAll(userDir, 0o700)
+		shellOpts.HistoryFile = userDir + "/history"
+		shellOpts.PrefsFile = userDir + "/prefs.json"
 	}
 	if err := shell.Serve(cli, shellOpts); err != nil {
 		opts.Logger.Warn("autocli/ssh: session", "err", err, "user", meta.User, "remote", meta.RemoteAddr)
