@@ -10,6 +10,8 @@ github.com/rosscartlidge/autocli/shell v0.1.3 h1:cUfSvxtbXYKSFG3CQLd5GskKDbIjoOL
 github.com/rosscartlidge/autocli/shell v0.1.3/go.mod h1:VqoDYi9YGl/+PQapI7DWymTRcWJUcp86rkScTPxNUEc=
 github.com/rosscartlidge/autocli/shell v0.1.4 h1:Ds5cUSHXNQDy1YyVMJh75f8j5BpeQCur/7K2PO9rCjI=
 github.com/rosscartlidge/autocli/shell v0.1.4/go.mod h1:VqoDYi9YGl/+PQapI7DWymTRcWJUcp86rkScTPxNUEc=
+github.com/rosscartlidge/autocli/shell v0.1.5 h1:yPWu64jnS2I+dydqApIjJXTIPnHvvs6bz+ScC5OeJPY=
+github.com/rosscartlidge/autocli/shell v0.1.5/go.mod h1:VqoDYi9YGl/+PQapI7DWymTRcWJUcp86rkScTPxNUEc=
 github.com/rosscartlidge/autocli/v4 v4.6.0 h1:VFdqkvz1wQtlBaIXDAKzgN5xmwennraEd9Tp4x+QraA=
 github.com/rosscartlidge/autocli/v4 v4.6.0/go.mod h1:HxyY8xr+3Pv7GHcxo7nWeqptLZvF2/8Vd7oPh1QJZuY=
 github.com/rosscartlidge/autocli/v4 v4.6.1 h1:INOzQFB5V+rsNOZxp5huv7deeDzQC85pTemXlMEm8ZQ=
