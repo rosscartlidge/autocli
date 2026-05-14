@@ -224,6 +224,22 @@ func (c *autocliCompleter) Do(line []rune, pos int) (newLine [][]rune, length in
 	// words we've consumed including the partial.
 	prefix := string(line[:pos])
 	args, partialStart := tokenizePartial(prefix)
+
+	// If the cursor is immediately AFTER a word-separator, the user
+	// is starting a new word. Bash's COMP_WORDS would have an extra
+	// empty entry at the cursor position; mirror that so autocli's
+	// Complete sees "user is now typing word #(N+1)" and offers
+	// completions for that slot (e.g. children of the previous
+	// subcommand) rather than re-suggesting the previous word.
+	// Without this, `to <TAB>` echoed `to` instead of showing
+	// children like `table`.
+	if len(prefix) > 0 {
+		last := prefix[len(prefix)-1]
+		if last == ' ' || last == '\t' {
+			args = append(args, "")
+		}
+	}
+
 	// Bash's COMP_WORDS includes the program name at index 0; the
 	// args slice we pass to Complete is COMP_WORDS[1:], so the
 	// position-in-COMP_WORDS for the word being completed is

@@ -3,7 +3,61 @@ package shell
 import (
 	"reflect"
 	"testing"
+
+	cf "github.com/rosscartlidge/autocli/v4"
 )
+
+// TestAutocliCompleter_TrailingSpace asserts that the cursor sitting
+// immediately AFTER a word boundary triggers completion of the NEXT
+// word, not re-completion of the previous one.
+//
+// Before the v0.1.3 fix, `to <TAB>` produced `[to]` because the
+// completer told autocli "user is on word #1 and typed 'to'" rather
+// than "user is on word #2 and typed ''". With this fix, autocli
+// sees the empty word and offers child subcommands (e.g. `table`).
+func TestAutocliCompleter_TrailingSpace(t *testing.T) {
+	cli := cf.NewCommand("svc").
+		Subcommand("to").
+		Subcommand("table").
+		Handler(func(ctx *cf.Context) error { return nil }).
+		Done().
+		Done().
+		Build()
+
+	comp := &autocliCompleter{cli: cli}
+	suggestions, _ := comp.Do([]rune("to "), 3)
+
+	// Each suggestion is the SUFFIX to append (partial is empty here
+	// since the cursor is after the space), so we look for "table".
+	found := false
+	for _, s := range suggestions {
+		if string(s) == "table" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		var strs []string
+		for _, s := range suggestions {
+			strs = append(strs, string(s))
+		}
+		t.Errorf("`to <TAB>` did not suggest `table`; got %v", strs)
+	}
+
+	// And confirm without the trailing space, `to` still completes
+	// itself (the previous behaviour).
+	suggestions, _ = comp.Do([]rune("t"), 1)
+	foundTo := false
+	for _, s := range suggestions {
+		// "o" is the suffix for "to" given partial "t".
+		if string(s) == "o" {
+			foundTo = true
+		}
+	}
+	if !foundTo {
+		t.Errorf("`t<TAB>` did not suggest `to` (suffix `o`); regression in non-trailing-space path")
+	}
+}
 
 func TestTokenize(t *testing.T) {
 	cases := []struct {
