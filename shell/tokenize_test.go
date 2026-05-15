@@ -2,20 +2,21 @@ package shell
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	cf "github.com/rosscartlidge/autocli/v4"
 )
 
-// TestAutocliCompleter_TrailingSpace asserts that the cursor sitting
+// TestTabComplete_TrailingSpace asserts that the cursor sitting
 // immediately AFTER a word boundary triggers completion of the NEXT
 // word, not re-completion of the previous one.
 //
-// Before the v0.1.3 fix, `to <TAB>` produced `[to]` because the
-// completer told autocli "user is on word #1 and typed 'to'" rather
-// than "user is on word #2 and typed ''". With this fix, autocli
-// sees the empty word and offers child subcommands (e.g. `table`).
-func TestAutocliCompleter_TrailingSpace(t *testing.T) {
+// Single-match case: `to ` should auto-insert `table ` (line becomes
+// "to table " with cursor after the trailing space). Multi-match
+// would print a list and return ok=false; we set up exactly one
+// match to keep this deterministic.
+func TestTabComplete_TrailingSpace(t *testing.T) {
 	cli := cf.NewCommand("svc").
 		Subcommand("to").
 		Subcommand("table").
@@ -24,38 +25,28 @@ func TestAutocliCompleter_TrailingSpace(t *testing.T) {
 		Done().
 		Build()
 
-	comp := &autocliCompleter{cli: cli}
-	suggestions, _ := comp.Do([]rune("to "), 3)
-
-	// Each suggestion is the SUFFIX to append (partial is empty here
-	// since the cursor is after the space), so we look for "table".
-	found := false
-	for _, s := range suggestions {
-		if string(s) == "table" {
-			found = true
-			break
-		}
+	var listSink, termSink strings.Builder
+	newLine, newPos, ok := tabComplete(cli, "to ", 3, &termSink, &listSink)
+	if !ok {
+		t.Fatalf("`to <TAB>` did not produce an insertion (multi-match list: %q)", listSink.String())
 	}
-	if !found {
-		var strs []string
-		for _, s := range suggestions {
-			strs = append(strs, string(s))
-		}
-		t.Errorf("`to <TAB>` did not suggest `table`; got %v", strs)
+	if newLine != "to table " {
+		t.Errorf("newLine = %q, want %q", newLine, "to table ")
+	}
+	if newPos != len(newLine) {
+		t.Errorf("newPos = %d, want %d (end of line)", newPos, len(newLine))
 	}
 
-	// And confirm without the trailing space, `to` still completes
-	// itself (the previous behaviour).
-	suggestions, _ = comp.Do([]rune("t"), 1)
-	foundTo := false
-	for _, s := range suggestions {
-		// "o" is the suffix for "to" given partial "t".
-		if string(s) == "o" {
-			foundTo = true
-		}
+	// And confirm without the trailing space, the in-progress word
+	// `t` still completes to `to` (insertion path, single match).
+	listSink.Reset()
+	termSink.Reset()
+	newLine, _, ok = tabComplete(cli, "t", 1, &termSink, &listSink)
+	if !ok {
+		t.Fatalf("`t<TAB>` did not produce an insertion")
 	}
-	if !foundTo {
-		t.Errorf("`t<TAB>` did not suggest `to` (suffix `o`); regression in non-trailing-space path")
+	if !strings.HasPrefix(newLine, "to") {
+		t.Errorf("newLine = %q, want prefix `to`", newLine)
 	}
 }
 

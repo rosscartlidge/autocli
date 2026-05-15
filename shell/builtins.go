@@ -2,17 +2,18 @@ package shell
 
 import (
 	"fmt"
+	"io"
 	"strings"
-
-	"github.com/chzyer/readline"
 )
 
 // dispatchBuiltin handles shell-level :commands that don't go through
 // the autocli Command tree. Returns (exitRequested, handled).
 //
 // Built-ins always start with ":" so they can't collide with
-// user-defined subcommands.
-func dispatchBuiltin(line string, rl *readline.Instance, opts *Options) (exit, handled bool) {
+// user-defined subcommands. The output sink (w) is the terminal —
+// either the x/term.Terminal (which renders ANSI correctly) or an
+// io.Writer compatible substitute for tests.
+func dispatchBuiltin(line string, w io.Writer, opts *Options) (exit, handled bool) {
 	if !strings.HasPrefix(line, ":") {
 		return false, false
 	}
@@ -21,72 +22,54 @@ func dispatchBuiltin(line string, rl *readline.Instance, opts *Options) (exit, h
 	case ":exit", ":quit", ":q":
 		return true, true
 	case ":help":
-		fmt.Fprintln(opts.Stdout, builtinHelpText())
+		fmt.Fprintln(w, builtinHelpText())
 		return false, true
 	case ":history":
-		// Readline writes history to its file/buffer; show what we have.
-		// chzyer/readline doesn't expose a public iterator, so we just
-		// surface the file path if persistent, else a placeholder.
 		if opts.HistoryFile != "" {
-			fmt.Fprintf(opts.Stdout, "history file: %s\n", opts.HistoryFile)
+			fmt.Fprintf(w, "history file: %s\n", opts.HistoryFile)
 		} else {
-			fmt.Fprintln(opts.Stdout, "history is session-only (no HistoryFile configured)")
+			fmt.Fprintln(w, "history is session-only (no HistoryFile configured)")
 		}
 		return false, true
 	case ":set":
-		return false, dispatchSet(fields[1:], rl, opts)
+		dispatchSet(fields[1:], w, opts)
+		return false, true
 	}
-	// Unknown :command — flag it so the user doesn't accidentally
-	// silent-ignore a typo of an autocli command.
 	fmt.Fprintf(opts.Stderr, "unknown built-in: %s (try :help)\n", fields[0])
 	return false, true
 }
 
 // dispatchSet implements `:set vi` / `:set emacs` and bare `:set`
-// (show current mode). Returns true to signal the line was handled.
+// (show current mode).
 //
-// NOTE: chzyer/readline's runtime SetVimMode races with its own
-// input goroutine (writes to a shared opVim state while readline
-// reads it). The race is library-internal, not autocli-shell's, but
-// we surface it by deferring the actual mode switch until the next
-// readline session — i.e. the user must :exit and reconnect for the
-// new bindings to take effect. The bookkeeping is updated immediately
-// so per-user-prefs persistence works.
-func dispatchSet(args []string, rl *readline.Instance, opts *Options) bool {
-	_ = rl // unused — see note above
+// v0.2 note: the underlying line editor (golang.org/x/term) is
+// emacs-only. We accept the `:set vi` command for backward
+// compatibility with v0.1 muscle memory but print a deprecation
+// notice. EditingMode is recorded so prefs.json round-trips remain
+// stable for callers that wrote a `vi` choice under v0.1.
+func dispatchSet(args []string, w io.Writer, opts *Options) {
 	if len(args) == 0 {
 		mode := "emacs"
 		if opts.EditingMode == EditingVi {
-			mode = "vi"
+			mode = "vi (no-op — see below)"
 		}
-		fmt.Fprintf(opts.Stdout, "editing-mode: %s\n", mode)
-		return true
+		fmt.Fprintf(w, "editing-mode: %s\n", mode)
+		if opts.EditingMode == EditingVi {
+			fmt.Fprintln(w, "note: vi mode is not implemented in shell v0.2+ (the underlying line editor is x/term, which is emacs-only). The setting is accepted but has no effect.")
+		}
+		return
 	}
-	persistAndNotify := func(prev, next EditingMode, label string) {
-		opts.EditingMode = next
-		fmt.Fprintf(opts.Stdout, "editing-mode: %s\n", label)
-		if prev == next {
-			return
-		}
-		switch err := savePrefs(opts.PrefsFile, next); {
-		case opts.PrefsFile == "":
-			fmt.Fprintln(opts.Stdout, "(this session only — no PrefsFile configured)")
-		case err != nil:
-			fmt.Fprintf(opts.Stderr, "(saved in-memory only — error writing %s: %v)\n", opts.PrefsFile, err)
-		default:
-			fmt.Fprintln(opts.Stdout, "(saved — takes effect on next session)")
-		}
-	}
-
 	switch args[0] {
 	case "vi":
-		persistAndNotify(opts.EditingMode, EditingVi, "vi")
+		fmt.Fprintln(w, "editing-mode: vi (accepted but inactive — see :set without args)")
+		fmt.Fprintln(w, "note: shell v0.2 dropped vi support when migrating to x/term. The keybindings remain emacs-style.")
+		opts.EditingMode = EditingVi
 	case "emacs":
-		persistAndNotify(opts.EditingMode, EditingEmacs, "emacs")
+		fmt.Fprintln(w, "editing-mode: emacs")
+		opts.EditingMode = EditingEmacs
 	default:
 		fmt.Fprintf(opts.Stderr, ":set: unknown option %q (try vi or emacs)\n", args[0])
 	}
-	return true
 }
 
 func builtinHelpText() string {
@@ -96,12 +79,12 @@ shell built-ins (start with :)
   :exit / :quit / :q close the session
   :history           show session history info
   :set               show current editing mode
-  :set vi            switch to vi keybindings (next session)
-  :set emacs         switch to emacs keybindings (next session, default)
 
 For the available service commands type:
   -help              full command tree with descriptions
   <command> -help    detailed help for one command
   <TAB><TAB>         autocomplete options at the current position
+
+(Ctrl-C / Ctrl-D also close the session.)
 `, "\n")
 }

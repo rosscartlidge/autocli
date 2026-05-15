@@ -1,5 +1,5 @@
 // Package shell drives an autocli Command from an interactive
-// readline loop instead of the bash completion protocol.
+// line-editing loop instead of the bash completion protocol.
 //
 // It's the layer-2 driver from the autocli-shell proposal: TAB hits
 // Command.Complete to fetch suggestions, Enter parses the line and
@@ -8,7 +8,16 @@
 // duplication.
 //
 // Lives in a sub-module so autocli core stays stdlib-only; embedded
-// callers opt in to chzyer/readline by importing this package.
+// callers opt in to golang.org/x/term by importing this package.
+//
+// v0.2 switched the underlying line editor from chzyer/readline to
+// golang.org/x/term. The motivation: chzyer/readline's design
+// hardcodes os.Stdin in multiple places (MakeRaw, SetVimMode) which
+// broke ssh-channel-backed sessions in three different ways. x/term
+// takes an explicit io.ReadWriter, doesn't manage termios itself
+// (caller responsibility — well-suited to the ssh-channel case where
+// no termios applies), and is maintained by the Go team. Cost: no
+// vi mode (x/term is emacs-only).
 package shell
 
 import (
@@ -19,57 +28,42 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chzyer/readline"
 	cf "github.com/rosscartlidge/autocli/v4"
+	"golang.org/x/term"
 )
 
-// isHelpToken returns true for the conventional help-request words
-// users might type at a prompt. `help` is included so users without
-// the dash habit don't get told their command is unknown when they
-// were really asking for the menu.
-func isHelpToken(s string) bool {
-	switch s {
-	case "-help", "--help", "-h", "help", "?":
-		return true
-	}
-	return false
-}
-
-// EditingMode selects the readline keybinding set.
+// EditingMode is kept for API compatibility with v0.1 callers. As of
+// v0.2 only emacs mode is implemented (the underlying line editor is
+// x/term, which is emacs-only). `:set vi` prints a deprecation note
+// instead of switching keybindings.
 type EditingMode int
 
 const (
-	// EditingEmacs is GNU readline emacs-mode (Ctrl-A/E/K/W/R/etc.).
-	// The default for autocli/shell.
+	// EditingEmacs — the default and only functional mode in v0.2+.
 	EditingEmacs EditingMode = iota
-	// EditingVi is GNU readline vi-mode (normal/insert, hjkl motions, dd etc.).
+	// EditingVi — accepted but not implemented in v0.2. See package
+	// docs for the rationale.
 	EditingVi
 )
 
 // Options configures a shell session.
 type Options struct {
-	// Prompt is the readline prompt. Defaults to "> ".
+	// Prompt is the line-editor prompt. Defaults to "> ".
 	Prompt string
 
 	// HistoryFile, if non-empty, persists the session's command history.
-	// Empty means in-memory only.
+	// Empty means in-memory only. File-format is one line per entry,
+	// oldest-first; capped at 1000 entries.
 	HistoryFile string
 
-	// EditingMode picks emacs (default) or vi keybindings at startup.
-	// Operators flip at runtime with :set vi / :set emacs — the choice
-	// is written back to PrefsFile so the next session reads it.
-	// Currently :set takes effect on next session, not mid-session,
-	// because chzyer/readline's runtime SetVimMode races with its own
-	// input goroutine. See shell/README.md "Editing modes".
+	// EditingMode used to switch between emacs and vi keybindings.
+	// As of v0.2 only emacs is implemented; the field is preserved
+	// for API stability. See package docs.
 	EditingMode EditingMode
 
-	// PrefsFile, if non-empty, is the path to a per-user JSON file
-	// holding shell preferences (currently just the editing mode).
-	// Serve reads it on session start (any value found overrides
-	// Options.EditingMode); :set vi/emacs writes it back. Empty =
-	// no persistence, :set only affects the current session's
-	// bookkeeping. autocli/ssh sets this per-session under
-	// Options.HistoryDir/$user/prefs.json when HistoryDir is set.
+	// PrefsFile is preserved for v0.1 callers but functionally
+	// inactive — the only thing it used to persist was the editing
+	// mode, which is now constant.
 	PrefsFile string
 
 	// State is the caller-supplied service handle threaded through to
@@ -82,7 +76,7 @@ type Options struct {
 	// Goodbye banner printed on :exit / Ctrl-D. Defaults to none.
 	Goodbye string
 
-	// Stdin / Stdout / Stderr override the streams the readline loop
+	// Stdin / Stdout / Stderr override the streams the line editor
 	// reads from and writes to. Defaults: os.Stdin / os.Stdout / os.Stderr.
 	// SSH adapters override these with the session's channel.
 	Stdin  io.Reader
@@ -90,7 +84,10 @@ type Options struct {
 	Stderr io.Writer
 
 	// Ctx, if set, is observed by the loop — cancelling it stops the
-	// session at the next readline iteration. Defaults to context.Background.
+	// session at the next iteration. Defaults to context.Background.
+	// To actually break the line editor out of a blocking Read, the
+	// caller is responsible for closing Stdin (autocli/ssh does this
+	// by closing the underlying SSH channel).
 	Ctx context.Context
 
 	// OnError, if set, is called for every non-nil handler/tokenize
@@ -99,10 +96,15 @@ type Options struct {
 	OnError func(error)
 }
 
-// Serve runs the shell loop until :exit, :quit, Ctrl-D, or Ctx
-// cancellation. Returns nil for clean exit; non-nil only on
-// readline-init errors or fatal IO failure (handler errors are
-// reported to the user and the loop continues).
+// Serve runs the shell loop until :exit, :quit, Ctrl-D / Ctrl-C, or
+// Stdin closure. Returns nil for clean exit; non-nil only on fatal
+// init failure (handler errors are reported to the user and the loop
+// continues).
+//
+// If Stdin is a real terminal (os.Stdin AND IsTerminal), the
+// function puts it in raw mode for the duration and restores on
+// exit. SSH-channel callers pass a non-terminal io.Reader and we
+// skip the termios dance entirely.
 func Serve(cli *cf.Command, opts Options) error {
 	if opts.Prompt == "" {
 		opts.Prompt = "> "
@@ -120,69 +122,47 @@ func Serve(cli *cf.Command, opts Options) error {
 		opts.Ctx = context.Background()
 	}
 
-	// Per-user prefs override Options.EditingMode when present.
-	// The :set vi/emacs builtin writes back to the same file so the
-	// next session opens in the chosen mode.
-	if mode, ok := loadPrefs(opts.PrefsFile); ok {
-		opts.EditingMode = mode
+	// Put a real local terminal in raw mode if applicable. SSH
+	// channels and piped input skip this — x/term will read raw
+	// bytes either way.
+	if f, ok := opts.Stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		state, err := term.MakeRaw(int(f.Fd()))
+		if err != nil {
+			return fmt.Errorf("shell: makeraw: %w", err)
+		}
+		defer term.Restore(int(f.Fd()), state)
 	}
 
-	stdinCloser, _ := opts.Stdin.(io.ReadCloser)
-	if stdinCloser == nil {
-		stdinCloser = io.NopCloser(opts.Stdin)
-	}
-	rlCfg := &readline.Config{
-		Prompt:          opts.Prompt,
-		HistoryFile:     opts.HistoryFile,
-		VimMode:         opts.EditingMode == EditingVi,
-		Stdin:           stdinCloser,
-		Stdout:          opts.Stdout,
-		Stderr:          opts.Stderr,
-		InterruptPrompt: "^C",
-		EOFPrompt:       "",
+	// x/term wants a combined io.ReadWriter; merge the caller's
+	// streams. We don't write to Stderr through the terminal —
+	// errors go directly to opts.Stderr below.
+	rw := readWriter{Reader: opts.Stdin, Writer: opts.Stdout}
+	t := term.NewTerminal(rw, opts.Prompt)
 
-		AutoComplete: &autocliCompleter{cli: cli},
+	if opts.HistoryFile != "" {
+		t.History = newFileHistory(opts.HistoryFile)
 	}
 
-	// chzyer/readline always calls MakeRaw on os.Stdin (FD 0)
-	// regardless of Config.Stdin — its GetStdin() hardcodes
-	// syscall.Stdin. When we're driving readline from an SSH channel
-	// (not os.Stdin), that puts the SERVER process's controlling
-	// terminal into raw mode, which disables ISIG, which makes
-	// Ctrl-C in the terminal where `myapp` was launched stop
-	// generating SIGINT. `kill -INT` still works because it bypasses
-	// the tty driver, but Ctrl-C silently becomes a literal byte.
-	//
-	// Detect non-os.Stdin and override FuncMakeRaw/FuncExitRaw to
-	// no-ops — the SSH client side already manages its own terminal
-	// (it put the user's local terminal in raw mode for the session),
-	// so the server side shouldn't touch any termios.
-	if opts.Stdin != os.Stdin {
-		rlCfg.FuncMakeRaw = func() error { return nil }
-		rlCfg.FuncExitRaw = func() error { return nil }
+	// TAB completion. AutoCompleteCallback fires on EVERY keypress;
+	// filter for TAB (rune 9) and pass through otherwise.
+	t.AutoCompleteCallback = func(line string, pos int, key rune) (newLine string, newPos int, ok bool) {
+		if key != '\t' {
+			return "", 0, false
+		}
+		return tabComplete(cli, line, pos, t, opts.Stdout)
 	}
-	rl, err := readline.NewEx(rlCfg)
-	if err != nil {
-		return fmt.Errorf("shell: readline init: %w", err)
-	}
-	defer rl.Close()
 
 	if opts.Welcome != "" {
-		fmt.Fprintln(opts.Stdout, opts.Welcome)
+		fmt.Fprintln(t, opts.Welcome)
 	}
 
-	// Loop until the user (or our caller) signals shutdown.
 	for {
 		if err := opts.Ctx.Err(); err != nil {
 			break
 		}
-		line, err := rl.Readline()
-		if err == readline.ErrInterrupt {
-			// Ctrl-C with no in-flight command: clear line, prompt again.
-			continue
-		}
+		line, err := t.ReadLine()
 		if err == io.EOF {
-			// Ctrl-D or stdin closed.
+			// Ctrl-D, Ctrl-C, or channel closed.
 			break
 		}
 		if err != nil {
@@ -197,7 +177,7 @@ func Serve(cli *cf.Command, opts Options) error {
 		// Built-in :commands handled before tokenisation so users can
 		// always escape (e.g. :exit even if the command tree has been
 		// misconfigured).
-		if exit, handled := dispatchBuiltin(line, rl, &opts); handled {
+		if exit, handled := dispatchBuiltin(line, t, &opts); handled {
 			if exit {
 				break
 			}
@@ -218,13 +198,13 @@ func Serve(cli *cf.Command, opts Options) error {
 		// help text (no bash-completion footer / -man reference) —
 		// the regular autocli path would dump the bash-flavoured form.
 		if len(args) == 1 && isHelpToken(args[0]) {
-			fmt.Fprintln(opts.Stdout, cli.GenerateHelpEmbedded())
+			fmt.Fprintln(t, cli.GenerateHelpEmbedded())
 			continue
 		}
 
 		base := (&cf.Context{State: opts.State}).
 			SetStdin(opts.Stdin).
-			SetStdout(opts.Stdout).
+			SetStdout(t).
 			SetStderr(opts.Stderr).
 			SetCtx(opts.Ctx)
 		if err := cli.ExecuteWith(args, base); err != nil {
@@ -243,84 +223,124 @@ func Serve(cli *cf.Command, opts Options) error {
 	}
 
 	if opts.Goodbye != "" {
-		fmt.Fprintln(opts.Stdout, opts.Goodbye)
+		fmt.Fprintln(t, opts.Goodbye)
 	}
 	return nil
 }
 
-// autocliCompleter adapts cli.Complete into the readline.AutoCompleter
-// interface. Readline gives us the line as a []rune and the cursor
-// position; we hand back candidate strings and the length of the
-// prefix already typed so readline replaces just the partial word.
-type autocliCompleter struct {
-	cli *cf.Command
+// readWriter trivially composes Reader + Writer into a ReadWriter
+// (what x/term.NewTerminal wants). Splitting them in Options is
+// nicer for callers since SSH gives them separately anyway.
+type readWriter struct {
+	io.Reader
+	io.Writer
 }
 
-func (c *autocliCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
-	// Tokenise the line up to pos so we can mirror the bash protocol:
-	// args = words before/at cursor; completion position = how many
-	// words we've consumed including the partial.
-	prefix := string(line[:pos])
-	args, partialStart := tokenizePartial(prefix)
+// isHelpToken returns true for the conventional help-request words
+// users might type at a prompt. `help` is included so users without
+// the dash habit don't get told their command is unknown when they
+// were really asking for the menu.
+func isHelpToken(s string) bool {
+	switch s {
+	case "-help", "--help", "-h", "help", "?":
+		return true
+	}
+	return false
+}
 
-	// If the cursor is immediately AFTER a word-separator, the user
-	// is starting a new word. Bash's COMP_WORDS would have an extra
-	// empty entry at the cursor position; mirror that so autocli's
-	// Complete sees "user is now typing word #(N+1)" and offers
-	// completions for that slot (e.g. children of the previous
-	// subcommand) rather than re-suggesting the previous word.
-	// Without this, `to <TAB>` echoed `to` instead of showing
-	// children like `table`.
-	if len(prefix) > 0 {
-		last := prefix[len(prefix)-1]
+// tabComplete is the per-TAB-press completer.
+//
+//   - Single match → replace the current word with the match + space.
+//   - Multiple matches → print them to the writer (newline-aware),
+//     leave the line unchanged. Operator sees the options and types
+//     more characters to disambiguate.
+//   - No match → no-op.
+//
+// Returns the (newLine, newPos, ok) tuple x/term's AutoCompleteCallback
+// expects. When ok is false, the keypress is processed normally.
+func tabComplete(cli *cf.Command, line string, pos int, w io.Writer, listSink io.Writer) (string, int, bool) {
+	args, partialStart := tokenizePartial(line[:pos])
+	// Trailing-whitespace handling — see autocli/shell v0.1.3.
+	if len(line[:pos]) > 0 {
+		last := line[pos-1]
 		if last == ' ' || last == '\t' {
 			args = append(args, "")
 		}
 	}
-
-	// Bash's COMP_WORDS includes the program name at index 0; the
-	// args slice we pass to Complete is COMP_WORDS[1:], so the
-	// position-in-COMP_WORDS for the word being completed is
-	// len(args). That maps to len(args)-1 inside args itself, which
-	// is the partial word the user is typing.
-	pos1based := len(args)
-	completions, err := c.cli.Complete(args, pos1based)
+	completions, err := cli.Complete(args, len(args))
 	if err != nil || len(completions) == 0 {
-		return nil, 0
+		return "", 0, false
 	}
 
-	// Compute the partial word length so readline replaces only the
-	// trailing word, not the whole line.
-	partialLen := len(prefix) - partialStart
-	if partialLen < 0 {
-		partialLen = 0
-	}
-	partial := prefix[partialStart:]
+	partial := line[partialStart:pos]
 
-	out := make([][]rune, 0, len(completions))
-	for _, c := range completions {
-		// Readline expects the SUFFIX (what to append after the
-		// partial). Strip the partial prefix from each suggestion if
-		// present; otherwise emit the whole suggestion.
-		suffix := c
-		if strings.HasPrefix(c, partial) {
-			suffix = c[len(partial):]
+	if len(completions) == 1 {
+		// Replace the current word and add a trailing space so the
+		// user can keep typing the next argument.
+		head := line[:partialStart]
+		tail := line[pos:]
+		insert := completions[0]
+		if !strings.HasSuffix(insert, " ") {
+			insert += " "
 		}
-		out = append(out, []rune(suffix))
+		newLine := head + insert + tail
+		newPos := partialStart + len(insert)
+		return newLine, newPos, true
 	}
-	return out, partialLen
+
+	// Multiple matches. Filter to those that actually start with the
+	// partial — we treat them as candidates only.
+	var matches []string
+	for _, c := range completions {
+		if strings.HasPrefix(c, partial) {
+			matches = append(matches, c)
+		}
+	}
+	if len(matches) == 0 {
+		matches = completions
+	}
+
+	// If they share a longer common prefix, insert that.
+	common := longestCommonPrefix(matches)
+	if len(common) > len(partial) {
+		head := line[:partialStart]
+		tail := line[pos:]
+		newLine := head + common + tail
+		newPos := partialStart + len(common)
+		return newLine, newPos, true
+	}
+
+	// Otherwise list options on a new line; x/term will redraw the
+	// prompt + current line below.
+	fmt.Fprintln(listSink, "\n"+strings.Join(matches, "  "))
+	return "", 0, false
+}
+
+func longestCommonPrefix(ss []string) string {
+	if len(ss) == 0 {
+		return ""
+	}
+	p := ss[0]
+	for _, s := range ss[1:] {
+		// Shrink p until s starts with it.
+		for !strings.HasPrefix(s, p) {
+			p = p[:len(p)-1]
+			if p == "" {
+				return ""
+			}
+		}
+	}
+	return p
 }
 
 // tokenizePartial returns the args parsed from prefix and the byte
 // offset where the trailing partial word starts. Used by the
-// completer to figure out how much to replace.
+// completer to figure out how much of the line to replace.
 func tokenizePartial(prefix string) (args []string, partialStart int) {
-	// Find the last unquoted whitespace boundary.
 	args, _ = Tokenize(prefix)
 	if len(prefix) == 0 {
 		return args, 0
 	}
-	// Walk back from end to find where the current word starts.
 	i := len(prefix)
 	for i > 0 {
 		r := prefix[i-1]
