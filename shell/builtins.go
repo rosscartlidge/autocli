@@ -39,37 +39,60 @@ func dispatchBuiltin(line string, w io.Writer, opts *Options) (exit, handled boo
 	return false, true
 }
 
-// dispatchSet implements `:set vi` / `:set emacs` and bare `:set`
-// (show current mode).
+// dispatchSet implements the `:set` built-in:
 //
-// v0.2 note: the underlying line editor (golang.org/x/term) is
-// emacs-only. We accept the `:set vi` command for backward
-// compatibility with v0.1 muscle memory but print a deprecation
-// notice. EditingMode is recorded so prefs.json round-trips remain
-// stable for callers that wrote a `vi` choice under v0.1.
+//	:set                    list registered settings with current values
+//	:set NAME               show the current value of NAME
+//	:set NAME VALUE...      apply VALUE (joined with spaces) to NAME
+//
+// Settings are supplied by the caller via Options.Settings. Empty
+// list = "no configurable settings". Setting.Set returning an error
+// is surfaced to the operator without ending the session.
+//
+// v0.2.1 replaced the v0.1-era hard-coded vi/emacs toggle with this
+// generic registry. The `vi`/`emacs` words now hit the unknown-
+// setting error path; the x/term migration in v0.2 made them no-ops
+// anyway.
 func dispatchSet(args []string, w io.Writer, opts *Options) {
+	if len(opts.Settings) == 0 {
+		fmt.Fprintln(w, "(no configurable settings)")
+		return
+	}
 	if len(args) == 0 {
-		mode := "emacs"
-		if opts.EditingMode == EditingVi {
-			mode = "vi (no-op — see below)"
+		// Listing form. Two columns: "name: value" then a description
+		// underneath. Skip the description line if empty.
+		nameWidth := 0
+		for _, s := range opts.Settings {
+			if n := len(s.Name); n > nameWidth {
+				nameWidth = n
+			}
 		}
-		fmt.Fprintf(w, "editing-mode: %s\n", mode)
-		if opts.EditingMode == EditingVi {
-			fmt.Fprintln(w, "note: vi mode is not implemented in shell v0.2+ (the underlying line editor is x/term, which is emacs-only). The setting is accepted but has no effect.")
+		for _, s := range opts.Settings {
+			fmt.Fprintf(w, "  %-*s = %s\n", nameWidth, s.Name, s.Get())
+			if s.Description != "" {
+				fmt.Fprintf(w, "  %-*s   (%s)\n", nameWidth, "", s.Description)
+			}
 		}
 		return
 	}
-	switch args[0] {
-	case "vi":
-		fmt.Fprintln(w, "editing-mode: vi (accepted but inactive — see :set without args)")
-		fmt.Fprintln(w, "note: shell v0.2 dropped vi support when migrating to x/term. The keybindings remain emacs-style.")
-		opts.EditingMode = EditingVi
-	case "emacs":
-		fmt.Fprintln(w, "editing-mode: emacs")
-		opts.EditingMode = EditingEmacs
-	default:
-		fmt.Fprintf(opts.Stderr, ":set: unknown option %q (try vi or emacs)\n", args[0])
+	name := args[0]
+	for _, s := range opts.Settings {
+		if s.Name != name {
+			continue
+		}
+		if len(args) == 1 {
+			fmt.Fprintf(w, "%s = %s\n", s.Name, s.Get())
+			return
+		}
+		value := strings.Join(args[1:], " ")
+		if err := s.Set(value); err != nil {
+			fmt.Fprintf(opts.Stderr, ":set %s: %v\n", name, err)
+			return
+		}
+		fmt.Fprintf(w, "%s = %s\n", s.Name, s.Get())
+		return
 	}
+	fmt.Fprintf(opts.Stderr, ":set: unknown setting %q (try `:set` with no args to list)\n", name)
 }
 
 func builtinHelpText() string {

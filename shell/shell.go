@@ -94,6 +94,11 @@ type Options struct {
 	// error. Useful for structured logging in a service. The error is
 	// also printed to Stderr regardless.
 	OnError func(error)
+
+	// Settings is the per-session list of named knobs the operator
+	// can read/change via `:set`. Empty/nil means `:set` reports
+	// "no configurable settings". See Setting for the contract.
+	Settings []Setting
 }
 
 // Serve runs the shell loop until :exit, :quit, Ctrl-D / Ctrl-C, or

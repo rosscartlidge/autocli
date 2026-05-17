@@ -121,27 +121,80 @@ func TestServe_BuiltinHelp(t *testing.T) {
 	}
 }
 
-// TestServe_BuiltinSetMode toggles vi/emacs and verifies the
-// Options-side state changes (readline-side is internal).
-func TestServe_BuiltinSetMode(t *testing.T) {
+// TestServe_BuiltinSet_NoSettings asserts :set with an empty
+// registry tells the operator there are no settings — was the
+// vi/emacs toggle path in v0.1, became the default in v0.2.1.
+func TestServe_BuiltinSet_NoSettings(t *testing.T) {
 	cli := buildTestCLI(&testState{})
 
-	out := runShellWithInput(t, cli, Options{}, ":set\n:set vi\n:set\n:set emacs\n:set\n:exit\n")
+	out := runShellWithInput(t, cli, Options{}, ":set\n:exit\n")
 
-	// First :set reports emacs (default), then vi, then emacs.
-	gotVi := strings.Index(out, "editing-mode: vi")
-	emacs := []int{}
-	idx := 0
-	for {
-		j := strings.Index(out[idx:], "editing-mode: emacs")
-		if j < 0 {
-			break
-		}
-		emacs = append(emacs, idx+j)
-		idx += j + 1
+	if !strings.Contains(out, "no configurable settings") {
+		t.Errorf("expected `no configurable settings` message; got: %q", out)
 	}
-	if gotVi < 0 || len(emacs) < 2 {
-		t.Errorf("expected one vi + two emacs reports, got: %q", out)
+}
+
+// TestServe_BuiltinSet_Registry exercises the v0.2.1 Settings API:
+// register a setting, list it, read it, write a new value, observe
+// that subsequent reads return the new value, and observe an
+// invalid-value error surfaces without ending the session.
+func TestServe_BuiltinSet_Registry(t *testing.T) {
+	cli := buildTestCLI(&testState{})
+
+	// Simple atomic-ish int setting; the test is single-threaded so
+	// plain variables are fine.
+	var verbose = "off"
+	opts := Options{
+		Settings: []Setting{
+			{
+				Name:        "verbose",
+				Description: "log verbosity",
+				Get:         func() string { return verbose },
+				Set: func(v string) error {
+					switch v {
+					case "on", "off":
+						verbose = v
+						return nil
+					default:
+						return fmt.Errorf("must be `on` or `off`, got %q", v)
+					}
+				},
+			},
+		},
+	}
+
+	out := runShellWithInput(t, cli, opts,
+		":set\n"+
+			":set verbose\n"+
+			":set verbose on\n"+
+			":set verbose\n"+
+			":set verbose maybe\n"+
+			":set bogus\n"+
+			":exit\n")
+
+	// Listing form contains the setting name and description.
+	if !strings.Contains(out, "verbose") || !strings.Contains(out, "log verbosity") {
+		t.Errorf("listing form missing expected text: %q", out)
+	}
+	// Initial read returns "off".
+	if !strings.Contains(out, "verbose = off") {
+		t.Errorf("initial read missing `verbose = off`: %q", out)
+	}
+	// After Set, read returns "on".
+	if !strings.Contains(out, "verbose = on") {
+		t.Errorf("after Set, read missing `verbose = on`: %q", out)
+	}
+	// Invalid value surfaces error.
+	if !strings.Contains(out, "must be") {
+		t.Errorf("invalid Set call did not surface error: %q", out)
+	}
+	// Unknown setting surfaces error.
+	if !strings.Contains(out, "unknown setting") {
+		t.Errorf("unknown setting did not surface error: %q", out)
+	}
+	// State after all that: verbose is `on`.
+	if verbose != "on" {
+		t.Errorf("final verbose = %q, want `on`", verbose)
 	}
 }
 
