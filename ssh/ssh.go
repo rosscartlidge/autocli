@@ -106,6 +106,15 @@ type Options struct {
 	// EditingMode picks emacs (default) or vi keybindings.
 	EditingMode shell.EditingMode
 
+	// Settings is the list of runtime-tunable knobs the operator can
+	// read/change via the `:set` built-in at the prompt. Shared
+	// across all sessions; the same closures are passed to every
+	// shell.Serve invocation, so a `:set name value` from one
+	// operator is visible to others on their next `:set name` read.
+	// Service is responsible for any locking around the underlying
+	// values. Empty/nil = `:set` reports "no configurable settings".
+	Settings []shell.Setting
+
 	// GraceTimeout is how long Serve waits for in-flight sessions to
 	// finish after ctx cancellation. Default 5s.
 	GraceTimeout time.Duration
@@ -423,6 +432,7 @@ func handleSession(ctx context.Context, ch gossh.Channel, reqs <-chan *gossh.Req
 		Stdout:      crlfWriter{ch},
 		Stderr:      crlfWriter{ch.Stderr()},
 		Ctx:         ctx,
+		Settings:    opts.Settings,
 	}
 	if opts.HistoryDir != "" {
 		// Per-user history + prefs under the supplied directory. User
