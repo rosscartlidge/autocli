@@ -378,18 +378,26 @@ func handleConn(ctx context.Context, conn net.Conn, cli *cf.Command, opts *Optio
 func handleSession(ctx context.Context, ch gossh.Channel, reqs <-chan *gossh.Request, cli *cf.Command, opts *Options, meta ConnMeta) {
 	defer ch.Close()
 
+	// resizeCh is fed from pty-req (initial size) and window-change
+	// requests; shell.Serve reads it in a goroutine and calls
+	// Terminal.SetSize so line-wrapping matches the operator's
+	// actual terminal width. Buffer 4 + non-blocking send means rapid
+	// resize bursts (e.g. dragging a terminal corner) are
+	// coalesced — we only care about the latest size.
+	resizeCh := make(chan shell.TerminalSize, 4)
+
 	// Wait for the client to request a shell (after optional pty-req).
-	// window-change requests arrive throughout the session; we don't
-	// (yet) propagate them to readline.
 	ready := make(chan struct{}, 1)
 	go func() {
 		for req := range reqs {
 			switch req.Type {
 			case "pty-req":
-				// Accept but ignore details — readline reads bytes
-				// from the channel; the client side has put the
-				// local terminal in raw mode and sends escape
-				// sequences directly.
+				if cols, rows, ok := parsePtyReq(req.Payload); ok {
+					select {
+					case resizeCh <- shell.TerminalSize{Width: int(cols), Height: int(rows)}:
+					default:
+					}
+				}
 				req.Reply(true, nil)
 			case "shell":
 				req.Reply(true, nil)
@@ -398,8 +406,12 @@ func handleSession(ctx context.Context, ch gossh.Channel, reqs <-chan *gossh.Req
 				default:
 				}
 			case "window-change":
-				// Future: emit on a chan readline can pick up via
-				// SetSize/Refresh.
+				if cols, rows, ok := parseWindowChange(req.Payload); ok {
+					select {
+					case resizeCh <- shell.TerminalSize{Width: int(cols), Height: int(rows)}:
+					default:
+					}
+				}
 				req.Reply(true, nil)
 			default:
 				req.Reply(false, nil)
@@ -433,6 +445,7 @@ func handleSession(ctx context.Context, ch gossh.Channel, reqs <-chan *gossh.Req
 		Stderr:      crlfWriter{ch.Stderr()},
 		Ctx:         ctx,
 		Settings:    opts.Settings,
+		ResizeChan:  resizeCh,
 	}
 	if opts.HistoryDir != "" {
 		// Per-user history + prefs under the supplied directory. User
