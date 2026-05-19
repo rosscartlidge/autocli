@@ -99,6 +99,29 @@ type Options struct {
 	// can read/change via `:set`. Empty/nil means `:set` reports
 	// "no configurable settings". See Setting for the contract.
 	Settings []Setting
+
+	// ResizeChan, if non-nil, is read by Serve in its own goroutine
+	// for terminal-size updates. Each TerminalSize received causes
+	// the underlying x/term.Terminal to update its size, which fixes
+	// line-wrap behaviour at the operator's actual terminal width.
+	//
+	// Senders should non-blocking-send (drop on full channel) — we
+	// only care about the latest size, and the buffer is small. The
+	// caller does NOT need to close the chan; Serve cancels its
+	// internal reader on return. Closing is also accepted (reader
+	// will see ok=false and exit).
+	//
+	// autocli/ssh wires this up from pty-req + window-change SSH
+	// payloads; local shell.Serve callers can ignore it (x/term
+	// inspects the local terminal directly when MakeRaw is used).
+	ResizeChan <-chan TerminalSize
+}
+
+// TerminalSize is a width+height pair pushed through Options.ResizeChan
+// to update the underlying terminal's dimensions mid-session.
+type TerminalSize struct {
+	Width  int
+	Height int
 }
 
 // Serve runs the shell loop until :exit, :quit, Ctrl-D / Ctrl-C, or
@@ -155,6 +178,28 @@ func Serve(cli *cf.Command, opts Options) error {
 			return "", 0, false
 		}
 		return tabComplete(cli, line, pos, t, opts.Stdout)
+	}
+
+	// Resize reader. Per-Serve cancellation so the goroutine exits
+	// when Serve returns even if the caller forgot to close the
+	// chan. x/term.Terminal.SetSize takes its internal lock so
+	// concurrent calls with ReadLine are safe.
+	if opts.ResizeChan != nil {
+		sessCtx, cancel := context.WithCancel(opts.Ctx)
+		defer cancel()
+		go func() {
+			for {
+				select {
+				case <-sessCtx.Done():
+					return
+				case sz, ok := <-opts.ResizeChan:
+					if !ok {
+						return
+					}
+					_ = t.SetSize(sz.Width, sz.Height)
+				}
+			}
+		}()
 	}
 
 	if opts.Welcome != "" {
