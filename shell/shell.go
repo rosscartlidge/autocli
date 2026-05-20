@@ -257,6 +257,28 @@ func Serve(cli *cf.Command, opts Options) error {
 			SetStdout(t).
 			SetStderr(opts.Stderr).
 			SetCtx(opts.Ctx)
+
+		// Pipeline detection. `|` as a standalone token means the
+		// user wants Position 2 piping: split into stages, wire
+		// io.Pipes between them, run goroutine-per-stage. A line
+		// without `|` falls through to the single-command path.
+		if stages, hasPipe, perr := splitOnPipe(args); hasPipe {
+			if perr != nil {
+				fmt.Fprintf(opts.Stderr, "%v\n", perr)
+				if opts.OnError != nil {
+					opts.OnError(perr)
+				}
+				continue
+			}
+			if err := runPipeline(cli, stages, base); err != nil {
+				fmt.Fprintf(opts.Stderr, "%v\n", err)
+				if opts.OnError != nil {
+					opts.OnError(err)
+				}
+			}
+			continue
+		}
+
 		if err := cli.ExecuteWith(args, base); err != nil {
 			// Friendly message for unknown commands instead of dumping
 			// the full help screen on every typo.
