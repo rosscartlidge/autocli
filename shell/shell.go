@@ -21,6 +21,7 @@
 package shell
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -164,7 +165,14 @@ func Serve(cli *cf.Command, opts Options) error {
 	// x/term wants a combined io.ReadWriter; merge the caller's
 	// streams. We don't write to Stderr through the terminal —
 	// errors go directly to opts.Stderr below.
-	rw := readWriter{Reader: opts.Stdin, Writer: opts.Stdout}
+	//
+	// The reader is wrapped in ctrlCReader so we can distinguish
+	// Ctrl-C (cancel current line, keep session) from Ctrl-D (exit).
+	// x/term returns io.EOF for both — see x/term terminal.go ~L820 —
+	// so we sniff the most recent Read for 0x03 (ETX) and consult it
+	// in the loop below.
+	cr := &ctrlCReader{r: opts.Stdin}
+	rw := readWriter{Reader: cr, Writer: opts.Stdout}
 	t := term.NewTerminal(rw, opts.Prompt)
 
 	if opts.HistoryFile != "" {
@@ -212,8 +220,17 @@ func Serve(cli *cf.Command, opts Options) error {
 		}
 		line, err := t.ReadLine()
 		if err == io.EOF {
-			// Ctrl-D, Ctrl-C, or channel closed.
+			// Ctrl-D or channel closed. Ctrl-C is handled below via
+			// the ctrlCReader translation, so a real io.EOF here means
+			// the session should end.
 			break
+		}
+		if cr.consumeCtrlC() {
+			// User pressed Ctrl-C — ctrlCReader translated it to
+			// Enter, which made ReadLine return the partial line.
+			// Discard the line, print ^C, and prompt again.
+			fmt.Fprintln(t, "^C")
+			continue
 		}
 		if err != nil {
 			return fmt.Errorf("shell: readline: %w", err)
@@ -252,8 +269,14 @@ func Serve(cli *cf.Command, opts Options) error {
 			continue
 		}
 
+		// Single commands and pipeline stage 0 read from an empty
+		// stdin. Routing opts.Stdin (the SSH channel / TTY) into a
+		// command's stdin would let a transform like `where` swallow
+		// the operator's next keystrokes and appear to hang the
+		// session. Commands that need data are expected to take a
+		// pipeline upstream (e.g. `from-loaded | where ...`).
 		base := (&cf.Context{State: opts.State}).
-			SetStdin(opts.Stdin).
+			SetStdin(bytes.NewReader(nil)).
 			SetStdout(t).
 			SetStderr(opts.Stderr).
 			SetCtx(opts.Ctx)
@@ -308,6 +331,41 @@ type readWriter struct {
 	io.Writer
 }
 
+// ctrlCReader wraps an io.Reader and translates Ctrl-C (0x03) into
+// CR (0x0d). x/term's ReadLine returns io.EOF on Ctrl-C without
+// consuming the 0x03 from its internal remainder buffer, which means
+// every subsequent ReadLine call also returns io.EOF — fatal to a
+// long-lived interactive shell. Translating to CR causes x/term to
+// treat the keypress as Enter, return the current line buffer, and
+// reset its state cleanly. The Serve loop checks `consumeCtrlC()`
+// after each ReadLine and discards the returned line (which is the
+// partial input the user had typed) when a Ctrl-C was seen.
+type ctrlCReader struct {
+	r      io.Reader
+	sawETX bool
+}
+
+func (c *ctrlCReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	for i := 0; i < n; i++ {
+		if p[i] == 0x03 {
+			c.sawETX = true
+			p[i] = 0x0d
+		}
+	}
+	return n, err
+}
+
+// Compile-time check that ctrlCReader matches io.Reader (kept so a
+// refactor that drops the method surface fails at build time).
+var _ io.Reader = (*ctrlCReader)(nil)
+
+func (c *ctrlCReader) consumeCtrlC() bool {
+	had := c.sawETX
+	c.sawETX = false
+	return had
+}
+
 // isHelpToken returns true for the conventional help-request words
 // users might type at a prompt. `help` is included so users without
 // the dash habit don't get told their command is unknown when they
@@ -337,6 +395,17 @@ func tabComplete(cli *cf.Command, line string, pos int, w io.Writer, listSink io
 		last := line[pos-1]
 		if last == ' ' || last == '\t' {
 			args = append(args, "")
+		}
+	}
+	// Pipe-aware completion: each `|` starts a fresh command stage, so
+	// complete against the args after the last pipe. Without this, the
+	// completer would treat `|` as a positional argument to the first
+	// command and offer that command's flags instead of the next
+	// stage's subcommands.
+	for j := len(args) - 1; j >= 0; j-- {
+		if args[j] == "|" {
+			args = args[j+1:]
+			break
 		}
 	}
 	completions, err := cli.Complete(args, len(args))

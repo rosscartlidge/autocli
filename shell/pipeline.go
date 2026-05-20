@@ -118,8 +118,17 @@ func runPipeline(cli *cf.Command, stages [][]string, base *cf.Context) error {
 	// Surface the first non-nil error. Friendly wrapper for unknown
 	// commands so the user sees the same message they'd get for a
 	// single-command typo.
+	//
+	// io.ErrClosedPipe from upstream stages is suppressed: when a
+	// downstream stage (e.g. `limit 3`) finishes early, the pipe runner
+	// closes the read end, and upstream writes fail with "io: read/write
+	// on closed pipe". That's the Unix SIGPIPE convention — the consumer
+	// is done, not an error — so we treat it as a normal early exit.
 	for i, err := range errs {
 		if err == nil {
+			continue
+		}
+		if errors.Is(err, io.ErrClosedPipe) {
 			continue
 		}
 		var unknown cf.ErrUnknownCommand
