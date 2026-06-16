@@ -1,5 +1,7 @@
 github.com/rosscartlidge/autocli/v4 v4.6.1 h1:INOzQFB5V+rsNOZxp5huv7deeDzQC85pTemXlMEm8ZQ=
 github.com/rosscartlidge/autocli/v4 v4.6.1/go.mod h1:HxyY8xr+3Pv7GHcxo7nWeqptLZvF2/8Vd7oPh1QJZuY=
+github.com/rosscartlidge/autocli/v4 v4.7.0 h1:f6G54mFU3MIGq3kPCtMv8NOreMLS/eynnl+ze6eB+Tg=
+github.com/rosscartlidge/autocli/v4 v4.7.0/go.mod h1:HxyY8xr+3Pv7GHcxo7nWeqptLZvF2/8Vd7oPh1QJZuY=
 golang.org/x/sys v0.44.0 h1:ildZl3J4uzeKP07r2F++Op7E9B29JRUy+a27EibtBTQ=
 golang.org/x/sys v0.44.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
 golang.org/x/term v0.43.0 h1:S4RLU2sB31O/NCl+zFN9Aru9A/Cq2aqKpTZJ6B+DwT4=

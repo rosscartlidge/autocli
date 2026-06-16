@@ -3,7 +3,7 @@ module github.com/rosscartlidge/autocli/shell
 go 1.25.0
 
 require (
-	github.com/rosscartlidge/autocli/v4 v4.6.1
+	github.com/rosscartlidge/autocli/v4 v4.7.0
 	golang.org/x/term v0.43.0
 )
 

@@ -26,7 +26,7 @@ func TestTabComplete_TrailingSpace(t *testing.T) {
 		Build()
 
 	var listSink, termSink strings.Builder
-	newLine, newPos, ok := tabComplete(cli, "to ", 3, &termSink, &listSink)
+	newLine, newPos, ok := tabComplete(cli, "to ", 3, &termSink, &listSink, nil, nil)
 	if !ok {
 		t.Fatalf("`to <TAB>` did not produce an insertion (multi-match list: %q)", listSink.String())
 	}
@@ -41,7 +41,7 @@ func TestTabComplete_TrailingSpace(t *testing.T) {
 	// `t` still completes to `to` (insertion path, single match).
 	listSink.Reset()
 	termSink.Reset()
-	newLine, _, ok = tabComplete(cli, "t", 1, &termSink, &listSink)
+	newLine, _, ok = tabComplete(cli, "t", 1, &termSink, &listSink, nil, nil)
 	if !ok {
 		t.Fatalf("`t<TAB>` did not produce an insertion")
 	}

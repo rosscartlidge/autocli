@@ -45,6 +45,29 @@ func splitOnPipe(args []string) (stages [][]string, hasPipe bool, err error) {
 	return stages, true, nil
 }
 
+// splitStagesForCompletion splits tokenised args on "|" into stages
+// for TAB completion. Unlike splitOnPipe (the execution splitter), it
+// TOLERATES empty stages — a trailing "|" or an empty stage under the
+// cursor is normal mid-typing, not an error — and always returns at
+// least one stage. The final element is the stage being completed; the
+// preceding elements are its upstream.
+//
+//	[]string{"from-loaded", "|", "group-by", ""}
+//	  → [][]string{{"from-loaded"}, {"group-by", ""}}
+func splitStagesForCompletion(args []string) [][]string {
+	stages := [][]string{}
+	current := []string{}
+	for _, a := range args {
+		if a == "|" {
+			stages = append(stages, current)
+			current = []string{}
+			continue
+		}
+		current = append(current, a)
+	}
+	return append(stages, current)
+}
+
 // runPipeline runs a multi-stage pipeline. Stages run concurrently
 // in goroutines; adjacent stages are connected by io.Pipe. Stage 0
 // reads from an empty reader (sources don't need stdin; non-sources

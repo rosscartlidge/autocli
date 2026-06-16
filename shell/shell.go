@@ -69,7 +69,22 @@ type Options struct {
 
 	// State is the caller-supplied service handle threaded through to
 	// every handler via Context.State. Type-asserted by the handler.
+	// Also seeded into CompletionContext.State during TAB completion,
+	// so completers can read the same service handle handlers see.
 	State any
+
+	// SchemaWalk, if set, enables pipeline-aware field completion. On
+	// TAB it is called with the session State and the upstream pipeline
+	// stages (everything before the stage under the cursor, each stage
+	// tokenised) and returns the field names flowing INTO the current
+	// stage. Those names are seeded into the completer's
+	// CompletionContext.UpstreamFields, so e.g. `from-loaded | group-by
+	// <TAB>` can offer the loaded schema's columns. Nil leaves
+	// completion exactly as it was. The shell is schema-agnostic — it
+	// only forwards stages + state and seeds whatever names come back;
+	// the host (e.g. ssql) supplies the walker that knows each command's
+	// schema rule. See SchemaWalkFunc.
+	SchemaWalk SchemaWalkFunc
 
 	// Welcome banner printed once when the loop starts. Defaults to none.
 	Welcome string
@@ -124,6 +139,17 @@ type TerminalSize struct {
 	Width  int
 	Height int
 }
+
+// SchemaWalkFunc computes the field names flowing INTO the pipeline
+// stage being completed. It receives the session State and the upstream
+// stages (each its tokenised args, command-name first, in pipeline
+// order — empty when the cursor is on the first stage). It returns the
+// available field names and ok=false when the schema is undeterminable
+// (a data-dependent stage, an unreadable source, …), in which case the
+// shell seeds no upstream fields and completion falls back to its
+// argv-only behaviour. Implementations must be side-effect-free and
+// fast — they run on every TAB. See Options.SchemaWalk.
+type SchemaWalkFunc func(state any, upstream [][]string) (fields []string, ok bool)
 
 // Serve runs the shell loop until :exit, :quit, Ctrl-D / Ctrl-C, or
 // Stdin closure. Returns nil for clean exit; non-nil only on fatal
@@ -185,7 +211,7 @@ func Serve(cli *cf.Command, opts Options) error {
 		if key != '\t' {
 			return "", 0, false
 		}
-		return tabComplete(cli, line, pos, t, opts.Stdout)
+		return tabComplete(cli, line, pos, t, opts.Stdout, opts.State, opts.SchemaWalk)
 	}
 
 	// Resize reader. Per-Serve cancellation so the goroutine exits
@@ -388,7 +414,7 @@ func isHelpToken(s string) bool {
 //
 // Returns the (newLine, newPos, ok) tuple x/term's AutoCompleteCallback
 // expects. When ok is false, the keypress is processed normally.
-func tabComplete(cli *cf.Command, line string, pos int, w io.Writer, listSink io.Writer) (string, int, bool) {
+func tabComplete(cli *cf.Command, line string, pos int, w io.Writer, listSink io.Writer, state any, schemaWalk SchemaWalkFunc) (string, int, bool) {
 	args, partialStart := tokenizePartial(line[:pos])
 	// Trailing-whitespace handling — see autocli/shell v0.1.3.
 	if len(line[:pos]) > 0 {
@@ -397,18 +423,24 @@ func tabComplete(cli *cf.Command, line string, pos int, w io.Writer, listSink io
 			args = append(args, "")
 		}
 	}
-	// Pipe-aware completion: each `|` starts a fresh command stage, so
-	// complete against the args after the last pipe. Without this, the
-	// completer would treat `|` as a positional argument to the first
-	// command and offer that command's flags instead of the next
-	// stage's subcommands.
-	for j := len(args) - 1; j >= 0; j-- {
-		if args[j] == "|" {
-			args = args[j+1:]
-			break
+	// Pipe-aware completion: each `|` starts a fresh command stage. We
+	// complete the stage under the cursor (the last one) and, when a
+	// SchemaWalk hook is supplied, seed it with the field names flowing
+	// in from the upstream stages — so `from-loaded | group-by <TAB>`
+	// can offer the loaded schema. Without splitting, the completer
+	// would treat `|` as a positional argument to the first command.
+	stages := splitStagesForCompletion(args)
+	current := stages[len(stages)-1]
+	upstream := stages[:len(stages)-1]
+
+	seed := cf.CompletionContext{State: state}
+	if schemaWalk != nil && len(upstream) > 0 {
+		if fields, ok := schemaWalk(state, upstream); ok {
+			seed.UpstreamFields = fields
 		}
 	}
-	completions, err := cli.Complete(args, len(args))
+
+	completions, err := cli.CompleteWithContext(current, len(current), seed)
 	if err != nil || len(completions) == 0 {
 		return "", 0, false
 	}
