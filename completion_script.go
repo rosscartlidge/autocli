@@ -251,7 +251,7 @@ func (cmd *Command) handleCompletionTo(args []string, w io.Writer) error {
 	}
 
 	// Get completions
-	completions, err := cmd.complete(compArgs, pos)
+	completions, err := cmd.complete(compArgs, pos, completionSeed{})
 	if err != nil {
 		return err
 	}
@@ -280,18 +280,49 @@ func (cmd *Command) handleCompletionTo(args []string, w io.Writer) error {
 // that want the same engine without the shell protocol — readline
 // loops, SSH service consoles, automated tests, etc.
 func (cmd *Command) Complete(args []string, pos int) ([]string, error) {
-	return cmd.complete(args, pos)
+	return cmd.complete(args, pos, completionSeed{})
+}
+
+// CompleteWithContext is like Complete, but lets the caller seed the
+// CompletionContext with values the engine cannot derive from argv:
+// UpstreamFields (the schema flowing in from an upstream pipeline
+// stage) and State (the host service's runtime state, mirroring
+// Context.State on the execution path). All other fields of seed are
+// ignored — the engine populates them from args/pos. The seeded
+// values reach every completer the engine dispatches to, including
+// those on leaf subcommands.
+func (cmd *Command) CompleteWithContext(args []string, pos int, seed CompletionContext) ([]string, error) {
+	return cmd.complete(args, pos, completionSeed{
+		upstreamFields: seed.UpstreamFields,
+		state:          seed.State,
+	})
+}
+
+// completionSeed carries the CompletionContext fields a caller injects
+// that the engine cannot derive from argv — the upstream schema and
+// host state. The zero value (used by the bash/CLI path via Complete)
+// injects nothing, preserving existing behaviour.
+type completionSeed struct {
+	upstreamFields []string
+	state          any
+}
+
+// apply copies the seeded fields onto an engine-built context.
+func (s completionSeed) apply(ctx *CompletionContext) {
+	ctx.UpstreamFields = s.upstreamFields
+	ctx.State = s.state
 }
 
 // complete generates completions for a given position
-func (cmd *Command) complete(args []string, pos int) ([]string, error) {
+func (cmd *Command) complete(args []string, pos int, seed completionSeed) ([]string, error) {
 	// Check if we have subcommands
 	if len(cmd.subcommands) > 0 {
-		return cmd.completeWithSubcommands(args, pos)
+		return cmd.completeWithSubcommands(args, pos, seed)
 	}
 
 	// No subcommands - use standard completion
 	ctx := cmd.analyzeCompletionContext(args, pos)
+	seed.apply(&ctx)
 	return cmd.executeCompletion(ctx)
 }
 
@@ -541,7 +572,7 @@ func (cmd *Command) completePositional(ctx CompletionContext) ([]string, error) 
 }
 
 // completeWithSubcommands handles completion for commands with subcommands
-func (cmd *Command) completeWithSubcommands(args []string, pos int) ([]string, error) {
+func (cmd *Command) completeWithSubcommands(args []string, pos int, seed completionSeed) ([]string, error) {
 	// Parse root global flags to find where they end
 	rootGlobals, remaining, err := cmd.parseRootGlobalFlags(args)
 	if err != nil {
@@ -641,6 +672,7 @@ func (cmd *Command) completeWithSubcommands(args []string, pos int) ([]string, e
 			for k, v := range rootGlobals {
 				positionalCtx.GlobalFlags[k] = v
 			}
+			seed.apply(&positionalCtx)
 			if positionalMatches, err := tempCmd.completePositional(positionalCtx); err == nil {
 				matches = append(matches, positionalMatches...)
 			}
@@ -668,6 +700,7 @@ func (cmd *Command) completeWithSubcommands(args []string, pos int) ([]string, e
 			for k, v := range rootGlobals {
 				ctx.GlobalFlags[k] = v
 			}
+			seed.apply(&ctx)
 
 			return tempCmd.executeCompletion(ctx)
 		}

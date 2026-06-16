@@ -31,6 +31,12 @@ type CompletionContext struct {
 	CurrentClause   *Clause
 	ParsedClauses   []Clause
 	GlobalFlags     map[string]interface{}
+
+	// Pipeline / host context — set by callers via
+	// Command.CompleteWithContext; the engine cannot derive these from
+	// argv alone.
+	UpstreamFields []string // field names flowing in from upstream (e.g. a prior pipeline stage)
+	State          any      // host-service state, the completion-time analogue of Context.State
 }
 
 // CompletionFunc is a function-based completer
@@ -251,6 +257,27 @@ func (nc NoCompleter) Complete(ctx CompletionContext) ([]string, error) {
 		return []string{nc.Hint}, nil
 	}
 	return []string{}, nil
+}
+
+// UpstreamFieldsCompleter completes from the field names a caller seeds
+// into CompletionContext.UpstreamFields (see Command.CompleteWithContext).
+// It is the completion-time analogue of knowing the schema flowing into
+// a command — e.g. an embedded shell that walks a pipeline and knows
+// which fields the current stage will receive. It returns nothing when
+// no upstream fields are seeded, so it composes cleanly under
+// ChainCompleter with a file-based fallback completer.
+type UpstreamFieldsCompleter struct{}
+
+// Complete implements Completer interface
+func (UpstreamFieldsCompleter) Complete(ctx CompletionContext) ([]string, error) {
+	partial := strings.ToLower(ctx.Partial)
+	var matches []string
+	for _, f := range ctx.UpstreamFields {
+		if strings.HasPrefix(strings.ToLower(f), partial) {
+			matches = append(matches, f)
+		}
+	}
+	return matches, nil
 }
 
 // matchesPattern checks if a filename matches a glob pattern

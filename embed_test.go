@@ -81,7 +81,7 @@ func TestComplete_MatchesInternalComplete(t *testing.T) {
 	}
 	for _, tc := range cases {
 		pub, perr := cmd.Complete(tc.args, tc.pos)
-		priv, perr2 := cmd.complete(tc.args, tc.pos)
+		priv, perr2 := cmd.complete(tc.args, tc.pos, completionSeed{})
 		if (perr == nil) != (perr2 == nil) {
 			t.Errorf("err divergence for args=%v pos=%d: pub=%v priv=%v", tc.args, tc.pos, perr, perr2)
 			continue
