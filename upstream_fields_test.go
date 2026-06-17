@@ -5,6 +5,46 @@ import (
 	"testing"
 )
 
+// TestFieldsFromFlag_SeedsUpstream confirms that a flag wired with
+// FieldsFromFlag automatically offers seeded upstream fields (because
+// FieldsFromFlag now installs a ChainCompleter{UpstreamFieldsCompleter,
+// FieldCompleter}). This is what gives every ssql field flag
+// pipeline-aware completion without per-flag changes. Without a seed
+// and without a source file, it falls back to nothing.
+func TestFieldsFromFlag_SeedsUpstream(t *testing.T) {
+	cmd := NewCommand("svc").
+		Subcommand("pick").
+		Flag("-field").
+		String().
+		FieldsFromFlag(""). // no source flag → file fallback yields nothing
+		Done().
+		Handler(func(ctx *Context) error { return nil }).
+		Done().
+		Build()
+
+	// Seeded: upstream fields surface through the chain.
+	got, err := cmd.CompleteWithContext(
+		[]string{"pick", "-field", ""}, 3,
+		CompletionContext{UpstreamFields: []string{"name", "dept"}})
+	if err != nil {
+		t.Fatalf("CompleteWithContext: %v", err)
+	}
+	if want := []string{"name", "dept"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("seeded: got %v, want %v", got, want)
+	}
+
+	// Unseeded (bash path): the chain falls through to FieldCompleter.
+	// With no source file it yields the file-fallback hint, NOT the
+	// upstream fields — proving the seed is what surfaces them.
+	got, err = cmd.Complete([]string{"pick", "-field", ""}, 3)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if reflect.DeepEqual(got, []string{"name", "dept"}) {
+		t.Errorf("unseeded should not return upstream fields, got %v", got)
+	}
+}
+
 // TestUpstreamFieldsCompleter exercises the completer in isolation:
 // prefix matching (case-insensitive), the empty-partial "offer all"
 // case, and the no-upstream-fields case (returns nothing so it can

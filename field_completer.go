@@ -37,6 +37,22 @@ type FieldCompleter struct {
 	SourceFlag string // Flag containing the file path (e.g., "-input")
 }
 
+// fieldsCompleter is the completer FieldsFromFlag installs. It offers
+// upstream pipeline fields first — the names a caller seeds via
+// CompleteWithContext (e.g. an embedded shell that walks a pipeline) —
+// and falls back to fields read from the file named by sourceFlag. In
+// the plain bash/CLI completion path nothing is seeded, so
+// UpstreamFieldsCompleter returns nothing and this behaves exactly like
+// a bare FieldCompleter. This is what lets `from-loaded | group-by
+// <TAB>` offer the upstream schema while `ssql from f.csv -if <TAB>`
+// still completes from the file.
+func fieldsCompleter(sourceFlag string) Completer {
+	return &ChainCompleter{Completers: []Completer{
+		UpstreamFieldsCompleter{},
+		&FieldCompleter{SourceFlag: sourceFlag},
+	}}
+}
+
 // Complete implements Completer interface
 func (fc *FieldCompleter) Complete(ctx CompletionContext) ([]string, error) {
 	// Try to get the file path from the source flag

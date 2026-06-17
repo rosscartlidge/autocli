@@ -298,9 +298,10 @@ func (fb *FlagBuilder) TimeZoneFromFlag(flagName string) *FlagBuilder {
 // Field names will be extracted from the file's header/first record
 func (fb *FlagBuilder) FieldsFromFlag(flagName string) *FlagBuilder {
 	fb.spec.FieldsFromFlag = flagName
-	// Set a FieldCompleter that will use this reference
+	// Set the completer that will use this reference (upstream fields,
+	// then file-derived fields — see fieldsCompleter).
 	if fb.spec.ArgCount == 1 {
-		fb.spec.ArgCompleters[0] = &FieldCompleter{SourceFlag: flagName}
+		fb.spec.ArgCompleters[0] = fieldsCompleter(flagName)
 	}
 	return fb
 }
@@ -366,8 +367,8 @@ func (ab *ArgBuilder) TimeZoneFromFlag(flagName string) *ArgBuilder {
 // FieldsFromFlag sets up field completion from a file specified by another flag
 func (ab *ArgBuilder) FieldsFromFlag(flagName string) *ArgBuilder {
 	ab.fb.spec.FieldsFromFlag = flagName
-	// Set completer for this specific argument
-	ab.fb.spec.ArgCompleters[ab.argIndex] = &FieldCompleter{SourceFlag: flagName}
+	// Set completer for this specific argument (upstream + file).
+	ab.fb.spec.ArgCompleters[ab.argIndex] = fieldsCompleter(flagName)
 	return ab
 }
 
