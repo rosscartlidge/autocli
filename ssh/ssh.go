@@ -115,6 +115,13 @@ type Options struct {
 	// values. Empty/nil = `:set` reports "no configurable settings".
 	Settings []shell.Setting
 
+	// SchemaWalk, if set, is passed through to each session's
+	// shell.Options to enable pipeline-aware field completion (e.g.
+	// `from-loaded | group-by <TAB>` offering the upstream schema). It
+	// receives the per-session State, so it sees the same handle the
+	// handlers do. See shell.SchemaWalkFunc.
+	SchemaWalk shell.SchemaWalkFunc
+
 	// GraceTimeout is how long Serve waits for in-flight sessions to
 	// finish after ctx cancellation. Default 5s.
 	GraceTimeout time.Duration
@@ -445,6 +452,7 @@ func handleSession(ctx context.Context, ch gossh.Channel, reqs <-chan *gossh.Req
 		Stderr:      crlfWriter{ch.Stderr()},
 		Ctx:         ctx,
 		Settings:    opts.Settings,
+		SchemaWalk:  opts.SchemaWalk,
 		ResizeChan:  resizeCh,
 	}
 	if opts.HistoryDir != "" {

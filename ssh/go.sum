@@ -20,10 +20,14 @@ github.com/rosscartlidge/autocli/shell v0.2.2 h1:aSvpP0SOZBoSPiLucvJI7KcJ0qGSRTW
 github.com/rosscartlidge/autocli/shell v0.2.2/go.mod h1:RdTfxGSVaYi18zvO3IZ/TI7119rxWgAi+X2RbA1x/6s=
 github.com/rosscartlidge/autocli/shell v0.3.0 h1:a2d73P6cCj5H9uTZ7v3ELvXDD0NpoJTFHAU9aoCPBOg=
 github.com/rosscartlidge/autocli/shell v0.3.0/go.mod h1:RdTfxGSVaYi18zvO3IZ/TI7119rxWgAi+X2RbA1x/6s=
+github.com/rosscartlidge/autocli/shell v0.4.0 h1:rundnDmKJf9vJN7B3zxpWeCsTUfpDqsKGbjHEVV0rKQ=
+github.com/rosscartlidge/autocli/shell v0.4.0/go.mod h1:yz7yH8mFwE/RING/8wuzhPXHPh+W1oFJBHKP1OGSzis=
 github.com/rosscartlidge/autocli/v4 v4.6.0 h1:VFdqkvz1wQtlBaIXDAKzgN5xmwennraEd9Tp4x+QraA=
 github.com/rosscartlidge/autocli/v4 v4.6.0/go.mod h1:HxyY8xr+3Pv7GHcxo7nWeqptLZvF2/8Vd7oPh1QJZuY=
 github.com/rosscartlidge/autocli/v4 v4.6.1 h1:INOzQFB5V+rsNOZxp5huv7deeDzQC85pTemXlMEm8ZQ=
 github.com/rosscartlidge/autocli/v4 v4.6.1/go.mod h1:HxyY8xr+3Pv7GHcxo7nWeqptLZvF2/8Vd7oPh1QJZuY=
+github.com/rosscartlidge/autocli/v4 v4.7.0 h1:f6G54mFU3MIGq3kPCtMv8NOreMLS/eynnl+ze6eB+Tg=
+github.com/rosscartlidge/autocli/v4 v4.7.0/go.mod h1:HxyY8xr+3Pv7GHcxo7nWeqptLZvF2/8Vd7oPh1QJZuY=
 golang.org/x/crypto v0.51.0 h1:IBPXwPfKxY7cWQZ38ZCIRPI50YLeevDLlLnyC5wRGTI=
 golang.org/x/crypto v0.51.0/go.mod h1:8AdwkbraGNABw2kOX6YFPs3WM22XqI4EXEd8g+x7Oc8=
 golang.org/x/sys v0.0.0-20220310020820-b874c991c1a5/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=

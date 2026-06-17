@@ -3,8 +3,8 @@ module github.com/rosscartlidge/autocli/ssh
 go 1.25.0
 
 require (
-	github.com/rosscartlidge/autocli/shell v0.3.0
-	github.com/rosscartlidge/autocli/v4 v4.6.1
+	github.com/rosscartlidge/autocli/shell v0.4.0
+	github.com/rosscartlidge/autocli/v4 v4.7.0
 	golang.org/x/crypto v0.51.0
 )
 
