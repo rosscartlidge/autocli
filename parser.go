@@ -43,6 +43,11 @@ func (cmd *Command) ExecuteWith(args []string, base *Context) error {
 				return fmt.Errorf("-complete requires position argument")
 			}
 			return cmd.handleCompletionTo(args[1:], base.Stdout())
+		case "-help-at":
+			if len(args) < 2 {
+				return fmt.Errorf("-help-at requires position argument")
+			}
+			return cmd.handleHelpAtTo(args[1:], base.Stdout())
 		case "-completion-script":
 			fmt.Fprint(base.Stdout(), cmd.GenerateCompletionScript())
 			return nil
