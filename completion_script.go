@@ -76,9 +76,8 @@ _autocli_complete() {
 
         # Save outer cache on first entry into process substitution
         # (so we can restore it when completing outside the procsub later)
-        if [[ -z "${AUTOCLI_OUTER_FIELDS:-}" && -n "${AUTOCLI_FIELDS:-}" ]]; then
-            export AUTOCLI_OUTER_FIELDS="$AUTOCLI_FIELDS"
-            export AUTOCLI_OUTER_CACHE_FILE="${AUTOCLI_CACHE_FILE:-}"
+        if [[ -z "${AUTOCLI_OUTER_CACHE_FILE:-}" && -n "${AUTOCLI_CACHE_FILE:-}" ]]; then
+            export AUTOCLI_OUTER_CACHE_FILE="$AUTOCLI_CACHE_FILE"
         fi
 
         # Try to get completions from inner command
@@ -117,7 +116,6 @@ _autocli_complete() {
     local has_procsub=0
 
     # Check if we have saved outer cache from before entering a procsub
-    local outer_fields="${AUTOCLI_OUTER_FIELDS:-}"
     local outer_file="${AUTOCLI_OUTER_CACHE_FILE:-}"
 
     for ((i=1; i<${#COMP_WORDS[@]}; i++)); do
@@ -145,11 +143,9 @@ _autocli_complete() {
 
     # If there were completed process substitutions, restore the outer cache
     # that was saved before entering the procsub
-    if [[ $has_procsub -eq 1 && -n "$outer_fields" ]]; then
-        export AUTOCLI_FIELDS="$outer_fields"
+    if [[ $has_procsub -eq 1 && -n "$outer_file" ]]; then
         export AUTOCLI_CACHE_FILE="$outer_file"
         # Clear the saved outer cache (it's been restored)
-        unset AUTOCLI_OUTER_FIELDS
         unset AUTOCLI_OUTER_CACHE_FILE
     fi
 
@@ -188,10 +184,11 @@ _autocli_process_output() {
 
                 case "$directive_type" in
                     field_cache)
-                        local fields filepath
-                        fields=$(echo "$json_line" | jq -r '.fields[]? // empty' 2>/dev/null | paste -sd,)
+                        # Cache only the source file PATH (for downstream VALUE
+                        # sampling). Field NAMES are deliberately not cached —
+                        # see FieldCompleter.Complete.
+                        local filepath
                         filepath=$(echo "$json_line" | jq -r '.filepath // empty' 2>/dev/null)
-                        [[ -n "$fields" ]] && export AUTOCLI_FIELDS="$fields"
                         [[ -n "$filepath" ]] && export AUTOCLI_CACHE_FILE="$filepath"
                         ;;
                     env)

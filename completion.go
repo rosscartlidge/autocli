@@ -15,22 +15,22 @@ type Completer interface {
 // CompletionContext provides everything needed for completion
 type CompletionContext struct {
 	// What we're completing
-	Partial      string
+	Partial string
 
 	// Position
-	Args         []string
-	Position     int
+	Args     []string
+	Position int
 
 	// Flag context
 	FlagName     string
-	ArgIndex     int             // Which argument of the flag (0-based)
-	PreviousArgs []string        // Previous args of this multi-arg flag
+	ArgIndex     int      // Which argument of the flag (0-based)
+	PreviousArgs []string // Previous args of this multi-arg flag
 
 	// Command state
-	Command         *Command
-	CurrentClause   *Clause
-	ParsedClauses   []Clause
-	GlobalFlags     map[string]interface{}
+	Command       *Command
+	CurrentClause *Clause
+	ParsedClauses []Clause
+	GlobalFlags   map[string]interface{}
 
 	// Pipeline / host context — set by callers via
 	// Command.CompleteWithContext; the engine cannot derive these from
@@ -49,9 +49,9 @@ func (f CompletionFunc) Complete(ctx CompletionContext) ([]string, error) {
 
 // FileCompleter completes file and directory names with optional pattern filtering
 type FileCompleter struct {
-	Pattern  string  // Glob pattern: "*.txt", "*.{json,yaml}", etc.
-	DirsOnly bool    // Only complete directories
-	Hint     string  // Hint to show when no files match (default: "<FILE>")
+	Pattern  string // Glob pattern: "*.txt", "*.{json,yaml}", etc.
+	DirsOnly bool   // Only complete directories
+	Hint     string // Hint to show when no files match (default: "<FILE>")
 }
 
 // Complete implements Completer interface
@@ -136,21 +136,20 @@ func (fc *FileCompleter) Complete(ctx CompletionContext) ([]string, error) {
 		return []string{hint}, nil
 	}
 
-	// If single data file match, emit field cache directive for downstream commands
-	// This allows pipelines like: ssql from users.csv<TAB> | ssql where -where <TAB>
-	// to have field completion without explicit -cache DONE step
+	// If single data file match, cache its absolute PATH for downstream VALUE
+	// completion (AUTOCLI_CACHE_FILE) — e.g. `ssql from users.csv<TAB> | ssql
+	// where -if status eq <TAB>` can then sample real values. We intentionally
+	// do NOT cache field NAMES across the pipe: that snapshot goes stale on
+	// rename/group-by/join and completes the wrong names (see
+	// FieldCompleter.Complete). Field names downstream come from the host's
+	// pipeline-aware path instead (ssql's Ctrl-O).
 	if len(matches) == 1 && !strings.HasSuffix(matches[0], "/") && isDataFile(matches[0]) {
-		fields, err := extractFields(matches[0])
-		if err == nil && len(fields) > 0 {
-			absPath, _ := filepath.Abs(matches[0])
+		if absPath, err := filepath.Abs(matches[0]); err == nil {
 			directive := CompletionDirective{
 				Type:     "field_cache",
-				Fields:   fields,
 				Filepath: absPath,
 			}
-			directiveJSON, err := json.Marshal(directive)
-			if err == nil {
-				// Prepend directive to matches
+			if directiveJSON, err := json.Marshal(directive); err == nil {
 				return append([]string{string(directiveJSON)}, matches...), nil
 			}
 		}

@@ -53,14 +53,13 @@ func TestFileCompleter_AutoCache_SingleDataFile(t *testing.T) {
 		t.Errorf("first result should be JSON field_cache directive, got: %s", results[0])
 	}
 
-	// Verify directive contains fields
-	if !strings.Contains(results[0], `"name"`) || !strings.Contains(results[0], `"age"`) || !strings.Contains(results[0], `"email"`) {
-		t.Errorf("directive should contain field names, got: %s", results[0])
-	}
-
-	// Verify directive contains filepath
+	// Verify directive contains the source filepath (for downstream VALUE
+	// sampling) and NOT field names (no cross-pipe name cache).
 	if !strings.Contains(results[0], `"filepath"`) {
 		t.Errorf("directive should contain filepath, got: %s", results[0])
+	}
+	if strings.Contains(results[0], `"fields"`) {
+		t.Errorf("directive should NOT contain a field-name cache, got: %s", results[0])
 	}
 
 	// Second result should be the filename

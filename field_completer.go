@@ -15,11 +15,13 @@ import (
 // These are returned alongside regular completions to pass structured data
 // to the bash completion script (requires jq to parse)
 type CompletionDirective struct {
-	Type     string   `json:"type"`              // Directive type: "field_cache", "env"
-	Fields   []string `json:"fields,omitempty"`   // For field_cache: list of field names
-	Filepath string   `json:"filepath,omitempty"` // For field_cache: absolute path to cache file
-	Key      string   `json:"key,omitempty"`      // For env: environment variable name
-	Value    string   `json:"value,omitempty"`    // For env: environment variable value
+	Type     string `json:"type"`               // Directive type: "field_cache", "env"
+	Filepath string `json:"filepath,omitempty"` // For field_cache: absolute path to the source file (for VALUE sampling)
+	Key      string `json:"key,omitempty"`      // For env: environment variable name
+	Value    string `json:"value,omitempty"`    // For env: environment variable value
+	// NOTE: field NAMES are deliberately not cached across pipe boundaries —
+	// such a cache goes stale on rename/group-by/join and confidently completes
+	// the wrong names. See FieldCompleter.Complete.
 }
 
 // toJSON converts the directive to a JSON string
@@ -30,6 +32,15 @@ func (cd *CompletionDirective) toJSON() string {
 	}
 	return string(jsonBytes)
 }
+
+// FieldNameHint is the placeholder a FieldCompleter returns when it cannot
+// derive field names from a same-command file (the common cross-pipe case —
+// see FieldCompleter.Complete). The default "<FIELD>" just signals "a field
+// goes here". A host that provides a pipeline-aware field completer on a key
+// can set this to an actionable, metacharacter-free token (e.g. ssql sets
+// "Use-Ctrl-O") so Tab inserts a self-documenting hint that the key then
+// clears and completes for real.
+var FieldNameHint = "<FIELD>"
 
 // FieldCompleter provides field name completion from data files (CSV, TSV, JSON, JSONL)
 // It reads the file specified by another flag and extracts field names from the header/first record
@@ -53,39 +64,24 @@ func fieldsCompleter(sourceFlag string) Completer {
 	}}
 }
 
-// Complete implements Completer interface
+// Complete implements Completer interface.
+//
+// Field names come ONLY from a data file named by a flag in the SAME command
+// (e.g. `join FILE -on <field>`). We deliberately do NOT fall back to a
+// cross-pipe environment cache of field names: such a cache is a snapshot of a
+// source header and goes stale the moment the pipeline renames fields,
+// aggregates (group-by), or joins — so it confidently completes the WRONG
+// names. Hosts that need pipeline-aware field names should compute the live
+// schema instead (e.g. ssql's Ctrl-O binding reads the real upstream schema).
+// With no same-command file we return an honest <FIELD> hint, never a guess.
 func (fc *FieldCompleter) Complete(ctx CompletionContext) ([]string, error) {
-	// Try to get the file path from the source flag
 	filePath := fc.getFilePathFromContext(ctx)
-
 	if filePath != "" {
-		// Try to extract fields from the file
-		fields, err := extractFields(filePath)
-		if err == nil && len(fields) > 0 {
-			// Return completions with JSON cache directive
-			filtered := filterFields(fields, ctx.Partial)
-
-			// Create JSON directive for field caching
-			directive := CompletionDirective{
-				Type:   "field_cache",
-				Fields: fields, // All fields (not just filtered)
-			}
-
-			// Prepend JSON directive
-			result := []string{directive.toJSON()}
-			result = append(result, filtered...)
-
-			return result, nil
+		if fields, err := extractFields(filePath); err == nil && len(fields) > 0 {
+			return filterFields(fields, ctx.Partial), nil
 		}
 	}
-
-	// Fallback to cached fields
-	if cachedFields := getCachedFields(filePath); len(cachedFields) > 0 {
-		return filterFields(cachedFields, ctx.Partial), nil
-	}
-
-	// Last resort: show hint
-	return []string{"<FIELD>"}, nil
+	return []string{FieldNameHint}, nil
 }
 
 // getFilePathFromContext extracts the file path from the referenced flag
@@ -224,40 +220,6 @@ func extractJSONFields(filePath string) ([]string, error) {
 	}
 
 	return nil, nil
-}
-
-// getCachedFields retrieves cached field names from environment variables
-// These are set by the bash completion script when it parses __AUTOCLI_CACHE__ directives
-func getCachedFields(filePath string) []string {
-	// Try file-specific cache first
-	if filePath != "" {
-		safeFileName := sanitizeForEnv(filepath.Base(filePath))
-		if cached := os.Getenv("AUTOCLI_FIELDS_" + safeFileName); cached != "" {
-			return strings.Split(cached, ",")
-		}
-	}
-
-	// Fall back to generic cache
-	if cached := os.Getenv("AUTOCLI_FIELDS"); cached != "" {
-		return strings.Split(cached, ",")
-	}
-
-	return nil
-}
-
-// sanitizeForEnv converts a filename to a safe environment variable suffix
-// data.csv -> data_csv
-// users.jsonl -> users_jsonl
-func sanitizeForEnv(name string) string {
-	return strings.Map(func(r rune) rune {
-		if r == '.' || r == '-' || r == ' ' {
-			return '_'
-		}
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
-			return r
-		}
-		return '_'
-	}, name)
 }
 
 // filterFields filters field names based on partial match
@@ -571,4 +533,3 @@ func sampleJSONLFieldValues(filePath, fieldName string, maxSamples, maxRecords i
 
 	return values, nil
 }
-

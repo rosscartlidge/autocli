@@ -2,7 +2,6 @@ package completionflags
 
 import (
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -133,54 +132,24 @@ func TestFieldCompleter_JSON_Object(t *testing.T) {
 	}
 }
 
-func TestFieldCompleter_Caching(t *testing.T) {
-	// Clean environment
-	os.Unsetenv("AUTOCLI_FIELDS")
-	os.Unsetenv("AUTOCLI_FIELDS_test_csv")
+// TestFieldCompleter_NoCrossPipeNameCache locks in the honest behavior: with
+// no data file in the current command, FieldCompleter returns the <FIELD> hint
+// and does NOT read a stale cross-pipe AUTOCLI_FIELDS env cache — even when one
+// is set. (Field names across a pipe must come from the host's live-schema
+// path, e.g. ssql's Ctrl-O, not a snapshot that ignores rename/group-by/join.)
+func TestFieldCompleter_NoCrossPipeNameCache(t *testing.T) {
+	os.Setenv("AUTOCLI_FIELDS", "stale1,stale2,stale3")
+	defer os.Unsetenv("AUTOCLI_FIELDS")
 
-	// Create temp CSV file
-	f, err := os.CreateTemp("", "test*.csv")
+	fc := &FieldCompleter{SourceFlag: "-input"}
+	// No -input flag in context → no same-command file to derive names from.
+	got, err := fc.Complete(CompletionContext{Partial: ""})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Complete: %v", err)
 	}
-	defer os.Remove(f.Name())
-
-	f.WriteString("field1,field2,field3\n")
-	f.Close()
-
-	// Extract fields
-	fields, _ := extractFields(f.Name())
-	expectedFields := []string{"field1", "field2", "field3"}
-	if !reflect.DeepEqual(fields, expectedFields) {
-		t.Errorf("extractFields: got %v, want %v", fields, expectedFields)
-	}
-
-	// Simulate what the bash completion script does:
-	// Set environment variables manually (as the completion script would)
-	fieldsStr := strings.Join(fields, ",")
-	os.Setenv("AUTOCLI_FIELDS", fieldsStr)
-
-	baseName := filepath.Base(f.Name())
-	safeName := sanitizeForEnv(baseName)
-	os.Setenv("AUTOCLI_FIELDS_"+safeName, fieldsStr)
-
-	// Test getCachedFields retrieves from file-specific cache
-	cached := getCachedFields(f.Name())
-	if !reflect.DeepEqual(cached, fields) {
-		t.Errorf("getCachedFields (file-specific): got %v, want %v", cached, fields)
-	}
-
-	// Test getCachedFields falls back to generic cache
-	os.Unsetenv("AUTOCLI_FIELDS_" + safeName)
-	cached = getCachedFields(f.Name())
-	if !reflect.DeepEqual(cached, fields) {
-		t.Errorf("getCachedFields (generic fallback): got %v, want %v", cached, fields)
-	}
-
-	// Test getCachedFields with empty filename uses generic cache
-	cached = getCachedFields("")
-	if !reflect.DeepEqual(cached, fields) {
-		t.Errorf("getCachedFields (empty filename): got %v, want %v", cached, fields)
+	want := []string{"<FIELD>"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("with no same-command file, got %v, want %v (must NOT use AUTOCLI_FIELDS)", got, want)
 	}
 }
 
@@ -211,29 +180,11 @@ func TestFieldCompleter_Complete(t *testing.T) {
 		t.Fatalf("Complete failed: %v", err)
 	}
 
-	// Check fields - should include JSON directive and field names
-	// Format: ["{\"type\":\"field_cache\",...}", "name", "age", "email", "department"]
-	if len(fields) != 5 {
-		t.Errorf("expected 5 results (JSON directive + 4 fields), got %d: %v", len(fields), fields)
-	}
-
-	// First result should be JSON directive
-	if !strings.HasPrefix(fields[0], "{") {
-		t.Errorf("first result should be JSON directive, got: %s", fields[0])
-	}
-
-	// Check JSON directive is valid and contains fields
-	if !strings.Contains(fields[0], `"type":"field_cache"`) {
-		t.Errorf("JSON directive should have type field_cache, got: %s", fields[0])
-	}
-	if !strings.Contains(fields[0], `"fields"`) {
-		t.Errorf("JSON directive should have fields array, got: %s", fields[0])
-	}
-
-	// Remaining results should be the field names
+	// Same-command file → just the field names, no JSON directive (FieldCompleter
+	// no longer emits a field-name cache directive).
 	expectedFields := []string{"name", "age", "email", "department"}
-	if !reflect.DeepEqual(fields[1:], expectedFields) {
-		t.Errorf("field names: got %v, want %v", fields[1:], expectedFields)
+	if !reflect.DeepEqual(fields, expectedFields) {
+		t.Errorf("field names: got %v, want %v", fields, expectedFields)
 	}
 }
 
@@ -264,27 +215,6 @@ func TestFieldCompleter_PartialMatch(t *testing.T) {
 	}
 }
 
-func TestSanitizeForEnv(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"data.csv", "data_csv"},
-		{"users.jsonl", "users_jsonl"},
-		{"my-file.txt", "my_file_txt"},
-		{"file with spaces.json", "file_with_spaces_json"},
-		{"file@special#chars.csv", "file_special_chars_csv"},
-		{"UPPERCASE.TSV", "UPPERCASE_TSV"},
-	}
-
-	for _, tt := range tests {
-		result := sanitizeForEnv(tt.input)
-		if result != tt.expected {
-			t.Errorf("sanitizeForEnv(%q): got %q, want %q", tt.input, result, tt.expected)
-		}
-	}
-}
-
 func TestFieldValueCompleter_CSV_WithSpecialCharacters(t *testing.T) {
 	// Create temp CSV file with special characters in values
 	f, err := os.CreateTemp("", "test*.csv")
@@ -298,7 +228,7 @@ func TestFieldValueCompleter_CSV_WithSpecialCharacters(t *testing.T) {
 	f.WriteString("Alice Smith,New York,active\n")
 	f.WriteString("Bob O'Brien,San Francisco,pending\n")
 	f.WriteString("\"Charlie \"\"Chuck\"\" Brown\",Los Angeles,inactive\n") // CSV escaped quotes
-	f.WriteString("\"Diana, Princess\",London,active\n")                     // CSV escaped comma
+	f.WriteString("\"Diana, Princess\",London,active\n")                    // CSV escaped comma
 	f.WriteString("Eve,Tel Aviv,active\n")
 	f.Close()
 
