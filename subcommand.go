@@ -2,6 +2,7 @@ package completionflags
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -36,10 +37,10 @@ type SubcommandParent interface {
 
 // SubcommandBuilder provides a fluent API for building subcommands
 type SubcommandBuilder struct {
-	name       string
-	parent     SubcommandParent // Can be *CommandBuilder or another *SubcommandBuilder
-	root       *CommandBuilder  // Reference to root CommandBuilder (for Done() to return)
-	subcmd     *Subcommand
+	name   string
+	parent SubcommandParent // Can be *CommandBuilder or another *SubcommandBuilder
+	root   *CommandBuilder  // Reference to root CommandBuilder (for Done() to return)
+	subcmd *Subcommand
 }
 
 // Subcommand creates a new subcommand builder
@@ -360,7 +361,11 @@ func (subcmd *Subcommand) GenerateHelp(parentName string) string {
 
 	// Usage
 	sb.WriteString("USAGE:\n")
-	usageLine := fmt.Sprintf("    %s %s [OPTIONS]", parentName, subcmd.Name)
+	usageLine := fmt.Sprintf("    %s %s", parentName, subcmd.Name)
+	if len(subcmd.Subcommands) > 0 {
+		usageLine += " <COMMAND>"
+	}
+	usageLine += " [OPTIONS]"
 
 	// Add positional arguments to usage line
 	var positionals []*FlagSpec
@@ -399,6 +404,21 @@ func (subcmd *Subcommand) GenerateHelp(parentName string) string {
 	if subcmd.Description != "" {
 		sb.WriteString("DESCRIPTION:\n")
 		sb.WriteString(fmt.Sprintf("    %s\n\n", subcmd.Description))
+	}
+
+	// Nested subcommands (e.g. `ssql to table`, `ssql to csv`) — list them so a
+	// dispatcher command's help actually shows what it dispatches to.
+	if len(subcmd.Subcommands) > 0 {
+		sb.WriteString("COMMANDS:\n")
+		names := make([]string, 0, len(subcmd.Subcommands))
+		for name := range subcmd.Subcommands {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			sb.WriteString(fmt.Sprintf("    %-15s %s\n", name, subcmd.Subcommands[name].Description))
+		}
+		sb.WriteString("\n")
 	}
 
 	// Arguments (positional)
@@ -463,7 +483,9 @@ func (subcmd *Subcommand) GenerateHelp(parentName string) string {
 			sb.WriteString(fmt.Sprintf("    Separators: %s\n", strings.Join(subcmd.Separators, ", ")))
 			sb.WriteString("    Each clause is processed independently (typically with OR logic).\n\n")
 		}
-	} else {
+	} else if len(subcmd.Subcommands) == 0 {
+		// A dispatcher (subcommands, no local flags) has no clauses — don't
+		// print the misleading "does not support clauses" line.
 		sb.WriteString("CLAUSES:\n")
 		sb.WriteString("    This command does not support clauses.\n\n")
 	}
@@ -481,6 +503,9 @@ func (subcmd *Subcommand) GenerateHelp(parentName string) string {
 	}
 
 	// Footer
+	if len(subcmd.Subcommands) > 0 {
+		sb.WriteString(fmt.Sprintf("Use '%s %s <command> -help' for help on a specific command.\n", parentName, subcmd.Name))
+	}
 	sb.WriteString(fmt.Sprintf("Use '%s -help' to see all available commands.\n", parentName))
 	sb.WriteString(fmt.Sprintf("Use '%s %s -man' to view the full manual page for this command.\n", parentName, subcmd.Name))
 
@@ -637,6 +662,23 @@ func (subcmd *Subcommand) GenerateManPage(parentName string) string {
 		sb.WriteString(".SH DESCRIPTION\n")
 		sb.WriteString(subcmd.Description)
 		sb.WriteString("\n")
+	}
+
+	// COMMANDS section — list nested subcommands (parity with GenerateHelp).
+	if len(subcmd.Subcommands) > 0 {
+		sb.WriteString(".SH COMMANDS\n")
+		names := make([]string, 0, len(subcmd.Subcommands))
+		for name := range subcmd.Subcommands {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			sb.WriteString(".TP\n.B ")
+			sb.WriteString(name)
+			sb.WriteString("\n")
+			sb.WriteString(subcmd.Subcommands[name].Description)
+			sb.WriteString("\n")
+		}
 	}
 
 	// OPTIONS section

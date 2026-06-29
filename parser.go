@@ -82,14 +82,21 @@ func (cmd *Command) ExecuteWith(args []string, base *Context) error {
 			leafSubcmd = subcmd
 			argIndex++
 
-			// Check for help flags immediately after this subcommand
+			// Check for help flags immediately after this subcommand. The
+			// parent prefix is the full path so far MINUS this subcommand, so
+			// e.g. `ssql to table -help` renders "ssql to table", not
+			// "ssql table".
 			if argIndex < len(remaining) {
+				parent := cmd.name
+				if len(path) > 1 {
+					parent = cmd.name + " " + strings.Join(path[:len(path)-1], " ")
+				}
 				switch remaining[argIndex] {
 				case "-help", "--help", "-h":
-					fmt.Fprintln(base.Stdout(), subcmd.GenerateHelp(cmd.name))
+					fmt.Fprintln(base.Stdout(), subcmd.GenerateHelp(parent))
 					return nil
 				case "-man":
-					fmt.Fprintln(base.Stdout(), subcmd.GenerateManPage(cmd.name))
+					fmt.Fprintln(base.Stdout(), subcmd.GenerateManPage(parent))
 					return nil
 				}
 			}
@@ -107,8 +114,12 @@ func (cmd *Command) ExecuteWith(args []string, base *Context) error {
 		if leafSubcmd != nil {
 			// Check if this is an intermediate node with no handler
 			if leafSubcmd.Handler == nil && len(leafSubcmd.Subcommands) > 0 {
-				// Intermediate node with no handler - show help
-				fmt.Fprintln(base.Stdout(), leafSubcmd.GenerateHelp(cmd.name))
+				// Intermediate node with no handler - show help (full parent path)
+				parent := cmd.name
+				if len(path) > 1 {
+					parent = cmd.name + " " + strings.Join(path[:len(path)-1], " ")
+				}
+				fmt.Fprintln(base.Stdout(), leafSubcmd.GenerateHelp(parent))
 				return nil
 			}
 
