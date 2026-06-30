@@ -326,6 +326,22 @@ func (cmd *Command) rootGlobalFlags() []*FlagSpec {
 	return globals
 }
 
+// demotedRootGlobalFlags is rootGlobalFlags for the COMPLETION merge path:
+// it returns shallow copies flagged demoted, so the inherited globals are
+// offered only on a specific prefix and don't crowd a subcommand's own
+// options on a broad `-<TAB>`. Copies (not the originals) so help, man, and
+// execution — which also call rootGlobalFlags — are unaffected.
+func (cmd *Command) demotedRootGlobalFlags() []*FlagSpec {
+	globals := cmd.rootGlobalFlags()
+	out := make([]*FlagSpec, len(globals))
+	for i, spec := range globals {
+		cp := *spec
+		cp.demoted = true
+		out[i] = &cp
+	}
+	return out
+}
+
 // hasSubcommand checks if a subcommand name is registered
 func (cmd *Command) hasSubcommand(name string) bool {
 	if cmd.subcommands == nil {

@@ -473,43 +473,86 @@ func (cmd *Command) executeCompletion(ctx CompletionContext) ([]string, error) {
 	return []string{}, nil
 }
 
-// completeFlags generates flag name completions
+// completeFlags generates flag name completions.
 func (cmd *Command) completeFlags(partial string) []string {
-	var matches []string
-	partialLower := strings.ToLower(partial)
+	return completeFlagSet(cmd.flags, partial)
+}
 
-	for _, spec := range cmd.flags {
+// completeFlagSet builds flag-name completions with "declutter" rules so a
+// broad `-<TAB>` shows the command's own options rather than a wall of
+// aliases and inherited globals:
+//
+//   - Only a flag's PRIMARY name (Names[0]) is foregrounded; alias forms
+//     (Names[1:]) appear only when the typed prefix specifically matches
+//     them (so `-dt<TAB>` still works, but bare `-<TAB>` shows
+//     `-default-type`, not `-dt`).
+//   - DEMOTED flags (inherited root globals like -verbose/-shell-helpers)
+//     are likewise prefix-only, so they don't crowd a subcommand's options.
+//   - Built-in meta flags collapse to a single `--help` on a broad prefix;
+//     `-help`/`-h`/`-man`/`-completion-script` appear only on a prefix match.
+//
+// "Foreground" candidates keep the exact pre-existing matching behaviour, so
+// nothing a user could complete before stops completing — background ones are
+// only ADDITIONALLY gated to a specific (non `-`/`+`/empty) prefix.
+func completeFlagSet(flags []*FlagSpec, partial string) []string {
+	pl := strings.ToLower(partial)
+	specific := pl != "" && pl != "-" && pl != "+"
+	var matches []string
+
+	for _, spec := range flags {
 		if spec.Hidden {
 			continue
 		}
-
-		for _, name := range spec.Names {
-			// Add -flag version
+		for i, name := range spec.Names {
+			// Positional args (FILE, N, …) are registered as flags but
+			// completed via completePositional, not here — skip them so they
+			// don't leak into a `-<TAB>` flag listing.
+			if !strings.HasPrefix(name, "-") {
+				continue
+			}
+			foreground := i == 0 && !spec.demoted
 			nameLower := strings.ToLower(name)
-			if partialLower == "" || partialLower == "-" || partialLower == "+" || strings.HasPrefix(nameLower, partialLower) {
+
+			// -flag form
+			if foreground {
+				if pl == "" || pl == "-" || pl == "+" || strings.HasPrefix(nameLower, pl) {
+					matches = append(matches, name)
+				}
+			} else if specific && strings.HasPrefix(nameLower, pl) {
 				matches = append(matches, name)
 			}
 
-			// Add +flag version (convert -flag to +flag)
+			// +flag (negation) form
 			if strings.HasPrefix(name, "-") {
-				plusVersion := "+" + name[1:]
-				plusLower := strings.ToLower(plusVersion)
-				if partialLower == "+" || strings.HasPrefix(plusLower, partialLower) {
-					matches = append(matches, plusVersion)
+				plus := "+" + name[1:]
+				plusLower := strings.ToLower(plus)
+				if foreground {
+					if pl == "+" || strings.HasPrefix(plusLower, pl) {
+						matches = append(matches, plus)
+					}
+				} else if specific && strings.HasPrefix(plusLower, pl) {
+					matches = append(matches, plus)
 				}
 			}
 		}
 	}
 
-	// Add built-in flags
-	builtins := []string{"-help", "--help", "-h", "-man", "-completion-script"}
-	for _, builtin := range builtins {
-		if partialLower == "" || partialLower == "-" || strings.HasPrefix(builtin, partialLower) {
-			matches = append(matches, builtin)
+	return append(matches, completeBuiltinFlags(pl, specific)...)
+}
+
+// completeBuiltinFlags offers the autocli built-ins, collapsing the help
+// trio to a single foregrounded `--help` and demoting the rest to prefix-only.
+func completeBuiltinFlags(pl string, specific bool) []string {
+	var out []string
+	if pl == "" || pl == "-" || strings.HasPrefix("--help", pl) {
+		out = append(out, "--help")
+	}
+	for _, b := range []string{"-help", "-h", "-man", "-completion-script"} {
+		if specific && strings.HasPrefix(b, pl) {
+			out = append(out, b)
 		}
 	}
-
-	return matches
+	return out
 }
 
 // completePositional generates completions for positional arguments
@@ -644,7 +687,7 @@ func (cmd *Command) completeWithSubcommands(args []string, pos int, seed complet
 				// Complete flags for this level (root globals + current subcommand flags)
 				tempCmd := &Command{
 					name:       leafSubcmd.Name,
-					flags:      append(cmd.rootGlobalFlags(), leafSubcmd.Flags...),
+					flags:      append(cmd.demotedRootGlobalFlags(), leafSubcmd.Flags...),
 					separators: leafSubcmd.Separators,
 				}
 				return tempCmd.completeFlagNames(partial), nil
@@ -657,7 +700,7 @@ func (cmd *Command) completeWithSubcommands(args []string, pos int, seed complet
 			// so that commands with both subcommands and positional args complete both
 			tempCmd := &Command{
 				name:       leafSubcmd.Name,
-				flags:      append(cmd.rootGlobalFlags(), leafSubcmd.Flags...),
+				flags:      append(cmd.demotedRootGlobalFlags(), leafSubcmd.Flags...),
 				separators: leafSubcmd.Separators,
 			}
 			positionalCtx := CompletionContext{
@@ -682,7 +725,7 @@ func (cmd *Command) completeWithSubcommands(args []string, pos int, seed complet
 			// Create a temporary command for the leaf subcommand
 			tempCmd := &Command{
 				name:       leafSubcmd.Name,
-				flags:      append(cmd.rootGlobalFlags(), leafSubcmd.Flags...),
+				flags:      append(cmd.demotedRootGlobalFlags(), leafSubcmd.Flags...),
 				separators: leafSubcmd.Separators,
 			}
 
@@ -709,44 +752,19 @@ func (cmd *Command) completeWithSubcommands(args []string, pos int, seed complet
 	return []string{}, nil
 }
 
-// completeRootGlobalFlags generates completions for root global flags only
+// completeRootGlobalFlags generates completions for root global flags only.
+// Routed through completeFlagSet so the root `prog -<TAB>` listing gets the
+// same declutter (primary names + a single --help) as subcommand levels. The
+// root globals are the command's own flags here (not demoted), so they
+// foreground normally; aliases and meta built-ins go prefix-only.
 func (cmd *Command) completeRootGlobalFlags(partial string) []string {
-	var matches []string
-	partialLower := strings.ToLower(partial)
-
+	var globals []*FlagSpec
 	for _, spec := range cmd.flags {
-		if spec.Scope != ScopeGlobal || spec.Hidden {
-			continue
-		}
-
-		for _, name := range spec.Names {
-			nameLower := strings.ToLower(name)
-			if partialLower == "" || partialLower == "-" || partialLower == "+" || strings.HasPrefix(nameLower, partialLower) {
-				matches = append(matches, name)
-			}
-
-			// Add +flag version
-			if strings.HasPrefix(name, "-") {
-				plusVersion := "+" + name[1:]
-				plusLower := strings.ToLower(plusVersion)
-				if partialLower == "+" || strings.HasPrefix(plusLower, partialLower) {
-					matches = append(matches, plusVersion)
-				}
-			}
+		if spec.Scope == ScopeGlobal {
+			globals = append(globals, spec)
 		}
 	}
-
-	// Add built-in flags — same set the leaf-level completer includes.
-	// Without these, typing `-h<TAB>` at the root of a subcommand-having
-	// command misses the built-in -help, even though typing the same
-	// thing after a subcommand name works correctly.
-	for _, builtin := range []string{"-help", "--help", "-h", "-man", "-completion-script"} {
-		if partialLower == "" || partialLower == "-" || strings.HasPrefix(builtin, partialLower) {
-			matches = append(matches, builtin)
-		}
-	}
-
-	return matches
+	return completeFlagSet(globals, partial)
 }
 
 // completeSubcommandNames generates completions for subcommand names
@@ -780,40 +798,8 @@ func (cmd *Command) completeNestedSubcommandNames(subcommands map[string]*Subcom
 }
 
 // completeFlagNames generates completions for flag names (used by temporary commands)
+// completeFlagNames is an alias for completeFlags (kept as a named entry
+// point for the nested-subcommand path); both share completeFlagSet.
 func (cmd *Command) completeFlagNames(partial string) []string {
-	var matches []string
-	partialLower := strings.ToLower(partial)
-
-	for _, spec := range cmd.flags {
-		if spec.Hidden {
-			continue
-		}
-
-		for _, name := range spec.Names {
-			// Add -flag version
-			nameLower := strings.ToLower(name)
-			if partialLower == "" || partialLower == "-" || partialLower == "+" || strings.HasPrefix(nameLower, partialLower) {
-				matches = append(matches, name)
-			}
-
-			// Add +flag version (convert -flag to +flag)
-			if strings.HasPrefix(name, "-") {
-				plusVersion := "+" + name[1:]
-				plusLower := strings.ToLower(plusVersion)
-				if partialLower == "+" || strings.HasPrefix(plusLower, partialLower) {
-					matches = append(matches, plusVersion)
-				}
-			}
-		}
-	}
-
-	// Add built-in flags
-	builtins := []string{"-help", "--help", "-h", "-man", "-completion-script"}
-	for _, builtin := range builtins {
-		if partialLower == "" || partialLower == "-" || strings.HasPrefix(builtin, partialLower) {
-			matches = append(matches, builtin)
-		}
-	}
-
-	return matches
+	return completeFlagSet(cmd.flags, partial)
 }

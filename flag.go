@@ -59,6 +59,13 @@ type FlagSpec struct {
 
 	// Display
 	Hidden      bool          // Hide from help/man (for internal flags)
+
+	// demoted marks a flag as "background" for completion: it is offered
+	// only when the typed prefix specifically matches it, not on a broad
+	// `-<TAB>`. Set on the inherited root-global copies merged into a
+	// subcommand's flag set, so a subcommand's own options aren't drowned
+	// out by global meta-flags. Completion-only; ignored by help/man/exec.
+	demoted bool
 }
 
 // ArgType represents the type of a flag argument
