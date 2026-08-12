@@ -107,6 +107,34 @@ func (fc *FieldCompleter) getFilePathFromContext(ctx CompletionContext) string {
 	return ""
 }
 
+
+// detectTSVDelim peeks a .tsv file's header line and returns the first
+// non-identifier byte as the delimiter, defaulting to '\t'. "TSV" files
+// in the wild are frequently pipe-, semicolon-, or colon-separated;
+// hard-coding '\t' made field/value completion silently fail on them.
+// Mirrors ssql's lib.DetectDelimInHeader — keep the rules in sync.
+func detectTSVDelim(filePath string) rune {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return '\t'
+	}
+	defer f.Close()
+	buf := make([]byte, 64*1024)
+	n, _ := f.Read(buf)
+	for i := 0; i < n; i++ {
+		c := buf[i]
+		if c == '\n' || c == '\r' {
+			break
+		}
+		ident := c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(i > 0 && c >= '0' && c <= '9')
+		if !ident {
+			return rune(c)
+		}
+	}
+	return '\t'
+}
+
 // extractFields extracts field names from a data file based on its extension
 func extractFields(filePath string) ([]string, error) {
 	ext := strings.ToLower(filepath.Ext(filePath))
@@ -115,7 +143,7 @@ func extractFields(filePath string) ([]string, error) {
 	case ".csv":
 		return extractCSVFields(filePath, ',')
 	case ".tsv":
-		return extractCSVFields(filePath, '\t')
+		return extractCSVFields(filePath, detectTSVDelim(filePath))
 	case ".jsonl", ".ndjson":
 		return extractJSONLFields(filePath)
 	case ".json":
@@ -406,7 +434,7 @@ func sampleFieldValues(filePath, fieldName string, maxSamples, maxRecords int) (
 	case ".csv":
 		return sampleCSVFieldValues(filePath, fieldName, ',', maxSamples, maxRecords)
 	case ".tsv":
-		return sampleCSVFieldValues(filePath, fieldName, '\t', maxSamples, maxRecords)
+		return sampleCSVFieldValues(filePath, fieldName, detectTSVDelim(filePath), maxSamples, maxRecords)
 	case ".jsonl", ".ndjson":
 		return sampleJSONLFieldValues(filePath, fieldName, maxSamples, maxRecords)
 	case ".json":

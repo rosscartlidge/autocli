@@ -2,6 +2,7 @@ package completionflags
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -459,5 +460,41 @@ func TestFieldValueCompleter_DuplicateValues(t *testing.T) {
 	expected := []string{"active", "inactive", "pending"}
 	if !reflect.DeepEqual(values, expected) {
 		t.Errorf("got %v, want %v", values, expected)
+	}
+}
+
+// TestTSVDelimiterDetection: "TSV" files are frequently pipe-, colon-, or
+// semicolon-separated; extraction and value sampling must auto-detect from
+// the header rather than assume '\t' (which silently returned nothing).
+func TestTSVDelimiterDetection(t *testing.T) {
+	dir := t.TempDir()
+	cases := []struct {
+		name, content string
+	}{
+		{"tab.tsv", "name\tage\tdept\nAlice\t30\tEng\n"},
+		{"pipe.tsv", "name|age|dept\nAlice|30|Eng\n"},
+		{"semi.tsv", "name;age;dept\nAlice;30;Eng\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(dir, c.name)
+			if err := os.WriteFile(path, []byte(c.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			fields, err := extractFields(path)
+			if err != nil {
+				t.Fatalf("extractFields: %v", err)
+			}
+			if len(fields) != 3 || fields[0] != "name" || fields[2] != "dept" {
+				t.Errorf("fields = %v, want [name age dept]", fields)
+			}
+			vals, err := sampleFieldValues(path, "dept", 10, 100)
+			if err != nil {
+				t.Fatalf("sampleFieldValues: %v", err)
+			}
+			if len(vals) != 1 || vals[0] != "Eng" {
+				t.Errorf("values = %v, want [Eng]", vals)
+			}
+		})
 	}
 }
