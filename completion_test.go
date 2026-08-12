@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestFileCompleter_AutoCache_SingleDataFile(t *testing.T) {
+func TestFileCompleter_NoDirective_SingleDataFile(t *testing.T) {
 	// Create a temp directory with a single CSV file
 	dir, err := os.MkdirTemp("", "autocli_test")
 	if err != nil {
@@ -42,29 +42,17 @@ func TestFileCompleter_AutoCache_SingleDataFile(t *testing.T) {
 		t.Fatalf("Complete failed: %v", err)
 	}
 
-	// Should have 2 results: JSON directive + filename
-	if len(results) != 2 {
-		t.Errorf("expected 2 results (directive + filename), got %d: %v", len(results), results)
-		return
+	// The field_cache directive is GONE (the persistent AUTOCLI_CACHE_FILE
+	// export went stale across pipelines; hosts resolve the value source
+	// from the line instead). A unique data-file match is now just the
+	// filename — nothing else.
+	if len(results) != 1 || results[0] != "users.csv" {
+		t.Errorf("expected exactly [users.csv] (no directive), got: %v", results)
 	}
-
-	// First result should be JSON directive
-	if !strings.HasPrefix(results[0], `{"type":"field_cache"`) {
-		t.Errorf("first result should be JSON field_cache directive, got: %s", results[0])
-	}
-
-	// Verify directive contains the source filepath (for downstream VALUE
-	// sampling) and NOT field names (no cross-pipe name cache).
-	if !strings.Contains(results[0], `"filepath"`) {
-		t.Errorf("directive should contain filepath, got: %s", results[0])
-	}
-	if strings.Contains(results[0], `"fields"`) {
-		t.Errorf("directive should NOT contain a field-name cache, got: %s", results[0])
-	}
-
-	// Second result should be the filename
-	if results[1] != "users.csv" {
-		t.Errorf("second result should be 'users.csv', got: %s", results[1])
+	for _, r := range results {
+		if strings.HasPrefix(r, "{") {
+			t.Errorf("no JSON directives should be emitted, got: %s", r)
+		}
 	}
 }
 

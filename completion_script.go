@@ -166,43 +166,15 @@ _autocli_complete() {
     fi
 }
 
-# Helper function to process completion output (handles JSON directives)
+# Helper function to process completion output.
+# (The JSON-directive machinery — field_cache exporting AUTOCLI_CACHE_FILE —
+# was removed with the persistent value cache; nothing emits directives now.
+# Any {json} line is stripped defensively in case an older binary does.)
 _autocli_process_output() {
     local output="$1"
     local cur="${COMP_WORDS[COMP_CWORD]}"
 
-    # Parse JSON directives if jq is available
-    if command -v jq &>/dev/null; then
-        local json_lines non_json_lines
-        json_lines=$(echo "$output" | grep '^{.*}$')
-        non_json_lines=$(echo "$output" | grep -v '^{.*}$')
-
-        if [[ -n "$json_lines" ]]; then
-            while IFS= read -r json_line; do
-                local directive_type
-                directive_type=$(echo "$json_line" | jq -r '.type // empty' 2>/dev/null)
-
-                case "$directive_type" in
-                    field_cache)
-                        # Cache only the source file PATH (for downstream VALUE
-                        # sampling). Field NAMES are deliberately not cached —
-                        # see FieldCompleter.Complete.
-                        local filepath
-                        filepath=$(echo "$json_line" | jq -r '.filepath // empty' 2>/dev/null)
-                        [[ -n "$filepath" ]] && export AUTOCLI_CACHE_FILE="$filepath"
-                        ;;
-                    env)
-                        local key value
-                        key=$(echo "$json_line" | jq -r '.key // empty' 2>/dev/null)
-                        value=$(echo "$json_line" | jq -r '.value // empty' 2>/dev/null)
-                        [[ -n "$key" ]] && export "$key=$value"
-                        ;;
-                esac
-            done <<< "$json_lines"
-        fi
-
-        output="$non_json_lines"
-    fi
+    output=$(echo "$output" | grep -v '^{.*}$')
 
     if [[ -n "$output" ]]; then
         local IFS=$'\n'

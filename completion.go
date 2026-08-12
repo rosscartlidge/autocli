@@ -1,7 +1,6 @@
 package completionflags
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,25 +135,14 @@ func (fc *FileCompleter) Complete(ctx CompletionContext) ([]string, error) {
 		return []string{hint}, nil
 	}
 
-	// If single data file match, cache its absolute PATH for downstream VALUE
-	// completion (AUTOCLI_CACHE_FILE) — e.g. `ssql from users.csv<TAB> | ssql
-	// where -if status eq <TAB>` can then sample real values. We intentionally
-	// do NOT cache field NAMES across the pipe: that snapshot goes stale on
-	// rename/group-by/join and completes the wrong names (see
-	// FieldCompleter.Complete). Field names downstream come from the host's
-	// pipeline-aware path instead (ssql's Ctrl-O).
-	if len(matches) == 1 && !strings.HasSuffix(matches[0], "/") && isDataFile(matches[0]) {
-		if absPath, err := filepath.Abs(matches[0]); err == nil {
-			directive := CompletionDirective{
-				Type:     "field_cache",
-				Filepath: absPath,
-			}
-			if directiveJSON, err := json.Marshal(directive); err == nil {
-				return append([]string{string(directiveJSON)}, matches...), nil
-			}
-		}
-	}
-
+	// NOTE: this used to emit a field_cache directive here (exporting
+	// AUTOCLI_CACHE_FILE into the shell for cross-pipe VALUE completion).
+	// Removed: the persistent cache went stale across pipelines — the same
+	// failure class that killed the AUTOCLI_FIELDS name cache. Cross-pipe
+	// value slots now hint FieldValueHint (an actionable press-Ctrl-O
+	// token in ssql), and the host's line-aware binding samples values
+	// from the pipeline's own source. AUTOCLI_CACHE_FILE remains as the
+	// per-invocation sampling parameter (see FieldValueCompleter).
 	return matches, nil
 }
 

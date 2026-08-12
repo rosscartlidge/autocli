@@ -42,6 +42,13 @@ func (cd *CompletionDirective) toJSON() string {
 // clears and completes for real.
 var FieldNameHint = "<FIELD>"
 
+// FieldValueHint is the placeholder a FieldValueCompleter returns when no
+// source file is available to sample (the cross-pipe case, now that the
+// AUTOCLI_CACHE_FILE shell export is gone). Hosts with a line-aware
+// value-completion path (ssql's Ctrl-O) override it with an actionable
+// token, mirroring FieldNameHint.
+var FieldValueHint = "<VALUE>"
+
 // FieldCompleter provides field name completion from data files (CSV, TSV, JSON, JSONL)
 // It reads the file specified by another flag and extracts field names from the header/first record
 type FieldCompleter struct {
@@ -307,13 +314,14 @@ func (fvc *FieldValueCompleter) Complete(ctx CompletionContext) ([]string, error
 		}
 	}
 
-	// Fallback to cached file from environment
+	// Fallback to the per-invocation sampling parameter (set by callers
+	// that resolve the source themselves, e.g. ssql's Ctrl-O value phase).
 	if filePath == "" {
 		filePath = os.Getenv("AUTOCLI_CACHE_FILE")
 	}
 
 	if filePath == "" {
-		return []string{"<VALUE>"}, nil
+		return []string{FieldValueHint}, nil
 	}
 
 	// Sample field values from the file
