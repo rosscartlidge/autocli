@@ -155,6 +155,13 @@ func extractFields(filePath string) ([]string, error) {
 		return extractJSONLFields(filePath)
 	case ".json":
 		return extractJSONFields(filePath)
+	case ".parquet", ".arrow":
+		// Binary columnar formats: autocli deliberately has no reader
+		// for them (dependency discipline). Return the field-name hint
+		// so Tab shows the actionable key; the host tool's Ctrl-O path
+		// resolves the real fields (ssql answers from the parquet
+		// footer via its schema mode).
+		return nil, fmt.Errorf("binary format %s: use the host tool's field key", ext)
 	default:
 		// Unknown extension, try CSV as fallback
 		return extractCSVFields(filePath, ',')

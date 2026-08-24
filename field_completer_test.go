@@ -498,3 +498,20 @@ func TestTSVDelimiterDetection(t *testing.T) {
 		})
 	}
 }
+
+// TestExtractFieldsBinaryFormats: parquet/arrow must return the
+// field-name hint path (error → FieldNameHint), never parse binary
+// bytes as CSV (the old fallback offered garbage "fields").
+func TestExtractFieldsBinaryFormats(t *testing.T) {
+	dir := t.TempDir()
+	p := dir + "/x.parquet"
+	os.WriteFile(p, []byte("PAR1\x15\x00\x15binarybytes"), 0o644)
+	if _, err := extractFields(p); err == nil {
+		t.Error("parquet: want error (hint path), got fields")
+	}
+	fc := &FieldCompleter{SourceFlag: "FILE"}
+	got, err := fc.Complete(CompletionContext{GlobalFlags: map[string]any{"FILE": p}})
+	if err != nil || len(got) != 1 || got[0] != FieldNameHint {
+		t.Errorf("Complete = %v, %v; want [%s]", got, err, FieldNameHint)
+	}
+}
