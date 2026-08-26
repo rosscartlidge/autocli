@@ -364,6 +364,20 @@ func (ab *ArgBuilder) TimeZoneFromFlag(flagName string) *ArgBuilder {
 	return ab
 }
 
+// Expression marks this argument as an expression slot (e.g. an
+// expr-lang program). Purely declarative metadata: host tooling
+// (contextual help, editors) reads it via FlagSpec.ArgExpr /
+// CompletionContext.FlagSpec rather than keeping its own table of
+// which flags take expressions where.
+func (ab *ArgBuilder) Expression() *ArgBuilder {
+	spec := ab.fb.spec
+	for len(spec.ArgExpr) < len(spec.ArgCompleters) {
+		spec.ArgExpr = append(spec.ArgExpr, false)
+	}
+	spec.ArgExpr[ab.argIndex] = true
+	return ab
+}
+
 // FieldsFromFlag sets up field completion from a file specified by another flag
 func (ab *ArgBuilder) FieldsFromFlag(flagName string) *ArgBuilder {
 	ab.fb.spec.FieldsFromFlag = flagName

@@ -366,6 +366,7 @@ func (cmd *Command) analyzeCompletionContext(args []string, pos int) CompletionC
 	flagPos, spec := cmd.findLastFlag(args, searchPos)
 	if spec != nil {
 		ctx.FlagName = spec.Names[0]
+		ctx.FlagSpec = spec
 
 		// Calculate which argument of the flag we're completing
 		// If pos >= len(args), we're completing after all existing args
@@ -787,4 +788,55 @@ func (cmd *Command) completeNestedSubcommandNames(subcommands map[string]*Subcom
 // point for the nested-subcommand path); both share completeFlagSet.
 func (cmd *Command) completeFlagNames(partial string) []string {
 	return completeFlagSet(cmd.flags, partial)
+}
+
+// AnalyzeCursor runs the completion engine's cursor analysis WITHOUT
+// generating completions: it descends the subcommand tree, then
+// analyzes the leaf scope, returning the context (FlagSpec, ArgIndex,
+// GlobalFlags with parsed positionals, Partial, …) plus the
+// subcommand path walked. args is argv minus the program name; pos is
+// the COMP_WORDS-style cursor index (program at 0) — the same shape
+// Complete takes. Host tools use this to derive cursor facts (is this
+// an expression slot? which file feeds this field slot?) from the
+// declared specs instead of re-implementing argv walking or keeping
+// per-command grammar tables.
+func (cmd *Command) AnalyzeCursor(args []string, pos int) (CompletionContext, []string) {
+	path := []string{}
+	rootGlobals, remaining, err := cmd.parseRootGlobalFlags(args)
+	if err != nil {
+		remaining = args
+		rootGlobals = nil
+	}
+	consumed := len(args) - len(remaining)
+	remainingPos := pos - consumed - 1
+
+	subs := cmd.subcommands
+	var leaf *Subcommand
+	argIndex := 0
+	for argIndex < len(remaining) && argIndex < remainingPos && subs != nil {
+		s, ok := subs[remaining[argIndex]]
+		if !ok {
+			break
+		}
+		leaf = s
+		path = append(path, remaining[argIndex])
+		argIndex++
+		subs = s.Subcommands
+	}
+
+	temp := cmd
+	if leaf != nil {
+		temp = &Command{
+			name:       leaf.Name,
+			flags:      append(cmd.demotedRootGlobalFlags(), leaf.Flags...),
+			separators: leaf.Separators,
+		}
+	}
+	ctx := temp.analyzeCompletionContext(remaining[argIndex:], remainingPos-argIndex+1)
+	for k, v := range rootGlobals {
+		if _, exists := ctx.GlobalFlags[k]; !exists {
+			ctx.GlobalFlags[k] = v
+		}
+	}
+	return ctx, path
 }

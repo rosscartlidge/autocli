@@ -57,6 +57,12 @@ type FlagSpec struct {
 	// Field completion (for data file field names)
 	FieldsFromFlag   string   // Flag name to get file path from (e.g., "-input") for field completion
 
+	// Per-arg expression markers, aligned with ArgNames (nil = none).
+	// Set via Arg(...).Expression(); lets host tools derive "the
+	// cursor is on an expression argument" from the declaration
+	// instead of hand-maintaining a (command, flag, argIdx) table.
+	ArgExpr []bool
+
 	// Display
 	Hidden      bool          // Hide from help/man (for internal flags)
 

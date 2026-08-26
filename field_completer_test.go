@@ -632,3 +632,55 @@ func TestFieldCompletionDanglingFlag(t *testing.T) {
 		t.Errorf("dangling-flag field completion: got %v, want %v", got, want)
 	}
 }
+
+// TestAnalyzeCursor pins the exported cursor analysis (host tools
+// derive slot facts from it) and the Expression() arg metadata.
+func TestAnalyzeCursor(t *testing.T) {
+	cmd := NewCommand("svc").
+		Subcommand("read").
+		Flag("FILE").
+		String().
+		Global().
+		Required().
+		Done().
+		Flag("-if").
+		Arg("field").
+		FieldsFromFlag("FILE").
+		Done().
+		Arg("op").
+		Done().
+		Arg("value").
+		Done().
+		Done().
+		Flag("-x").
+		Arg("EXPR").
+		Expression().
+		Done().
+		Done().
+		Handler(func(ctx *Context) error { return nil }).
+		Done().
+		Build()
+
+	// Cursor on -if's first arg: spec + arg index + parsed positional.
+	ctx, path := cmd.AnalyzeCursor([]string{"read", "data.csv", "-if", ""}, 4)
+	if len(path) != 1 || path[0] != "read" {
+		t.Errorf("path = %v", path)
+	}
+	if ctx.FlagSpec == nil || ctx.FlagSpec.Names[0] != "-if" || ctx.ArgIndex != 0 {
+		t.Errorf("slot = %+v", ctx)
+	}
+	if f, _ := ctx.GlobalFlags["FILE"].(string); f != "data.csv" {
+		t.Errorf("FILE positional not parsed: %v", ctx.GlobalFlags)
+	}
+
+	// Cursor on -x's arg: expression metadata flows through.
+	ctx, _ = cmd.AnalyzeCursor([]string{"read", "data.csv", "-x", ""}, 4)
+	if ctx.FlagSpec == nil || len(ctx.FlagSpec.ArgExpr) == 0 || !ctx.FlagSpec.ArgExpr[0] {
+		t.Errorf("ArgExpr not set/exposed: %+v", ctx.FlagSpec)
+	}
+	// -if's field arg is NOT an expression slot.
+	ctx, _ = cmd.AnalyzeCursor([]string{"read", "data.csv", "-if", ""}, 4)
+	if ctx.FlagSpec != nil && len(ctx.FlagSpec.ArgExpr) > 0 && ctx.FlagSpec.ArgExpr[0] {
+		t.Errorf("-if field arg wrongly marked expression")
+	}
+}

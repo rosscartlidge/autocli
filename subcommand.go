@@ -1015,6 +1015,17 @@ func (sab *SubcommandArgBuilder) TimeZoneFromFlag(flagName string) *SubcommandAr
 }
 
 // FieldsFromFlag sets up field completion from a file specified by another flag
+// Expression marks this argument as an expression slot — see
+// ArgBuilder.Expression.
+func (sab *SubcommandArgBuilder) Expression() *SubcommandArgBuilder {
+	spec := sab.sfb.spec
+	for len(spec.ArgExpr) < len(spec.ArgCompleters) {
+		spec.ArgExpr = append(spec.ArgExpr, false)
+	}
+	spec.ArgExpr[sab.argIndex] = true
+	return sab
+}
+
 func (sab *SubcommandArgBuilder) FieldsFromFlag(flagName string) *SubcommandArgBuilder {
 	sab.sfb.spec.FieldsFromFlag = flagName
 	// Set completer for this specific argument (upstream + file).

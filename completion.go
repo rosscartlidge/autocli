@@ -22,8 +22,9 @@ type CompletionContext struct {
 
 	// Flag context
 	FlagName     string
-	ArgIndex     int      // Which argument of the flag (0-based)
-	PreviousArgs []string // Previous args of this multi-arg flag
+	ArgIndex     int       // Which argument of the flag (0-based)
+	FlagSpec     *FlagSpec // Spec of the flag being completed (nil at a flag-name/positional slot)
+	PreviousArgs []string  // Previous args of this multi-arg flag
 
 	// Command state
 	Command       *Command
