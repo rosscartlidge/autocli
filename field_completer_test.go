@@ -592,3 +592,43 @@ func TestFieldValueSourceHook(t *testing.T) {
 		t.Errorf("fallback to sampler failed: %v", got)
 	}
 }
+
+// TestFieldCompletionDanglingFlag: completing a flag's FIELD argument
+// means the parse prefix ends mid-flag ("FILE -if") — a strict parse
+// of that fails, and before the longest-parseable-prefix fallback the
+// failure discarded the already-parsed positional FILE, silently
+// degrading same-command field completion to the hint (shipped broken
+// for an unknown time; found via ssql `from parquet F -columns <Tab>`).
+func TestFieldCompletionDanglingFlag(t *testing.T) {
+	dir := t.TempDir()
+	p := dir + "/data.csv"
+	os.WriteFile(p, []byte("alpha,beta\n1,2\n"), 0o644)
+
+	cmd := NewCommand("svc").
+		Subcommand("read").
+		Flag("FILE").
+		String().
+		Global().
+		Required().
+		Done().
+		Flag("-if").
+		Arg("field").
+		FieldsFromFlag("FILE").
+		Done().
+		Arg("op").
+		Done().
+		Arg("value").
+		Done().
+		Done().
+		Handler(func(ctx *Context) error { return nil }).
+		Done().
+		Build()
+
+	got, err := cmd.Complete([]string{"read", p, "-if", ""}, 4)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if want := []string{"alpha", "beta"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("dangling-flag field completion: got %v, want %v", got, want)
+	}
+}

@@ -334,7 +334,20 @@ func (cmd *Command) analyzeCompletionContext(args []string, pos int) CompletionC
 	if parseUpTo > len(args) {
 		parseUpTo = len(args)
 	}
-	partialCtx, _ := cmd.Parse(args[:parseUpTo])
+	// The prefix being parsed routinely ends mid-flag ("FILE -if" while
+	// completing -if's first argument) — a strict Parse of that errors
+	// and used to discard EVERYTHING already parsed, leaving completers
+	// blind to parsed positionals (FieldsFromFlag("FILE") got no FILE,
+	// so same-command field completion silently degraded to the hint).
+	// Fall back to the longest parseable prefix instead: trim trailing
+	// words until a parse succeeds.
+	partialCtx, err := cmd.Parse(args[:parseUpTo])
+	for trim := parseUpTo - 1; (partialCtx == nil || err != nil) && trim >= 0; trim-- {
+		partialCtx, err = cmd.Parse(args[:trim])
+	}
+	if err != nil {
+		partialCtx = nil
+	}
 	if partialCtx != nil {
 		ctx.ParsedClauses = partialCtx.Clauses
 		ctx.GlobalFlags = partialCtx.GlobalFlags
