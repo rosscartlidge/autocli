@@ -1591,6 +1591,12 @@ $ myapp -input data.csv -group <TAB>
 - **TSV** (`.tsv`) - Reads tab-separated header line
 - **JSONL** (`.jsonl`, `.ndjson`) - Reads first line, extracts object keys
 - **JSON** (`.json`) - Handles arrays (first object keys) or single objects
+- **Binary columnar formats** (`.parquet`, `.arrow`) - autocli
+  deliberately has no readers for these (dependency discipline); they
+  take the hint path unless the host answers them via the
+  `FieldSource` hook (below)
+
+Unknown extensions fall back to trying CSV.
 
 **Multi-Argument Flags:**
 
@@ -1605,32 +1611,37 @@ Flag("-sum").
     Done()
 ```
 
-**Environment Variable Caching:**
+**Cross-Pipe Behavior: Hints, Not Caches**
 
-The FieldCompleter caches extracted fields in environment variables for performance and to support pipelines:
+Earlier versions cached field names in environment variables
+(`AUTOCLI_FIELDS`, per-file variants) so completion could work across
+pipe boundaries. **That cache was deliberately removed** (v4.10–v4.13):
+a name cache is a snapshot of a source header, and it goes stale the
+moment a pipeline renames fields, aggregates, or joins — so it
+confidently completed the WRONG names. Wrong-but-confident is worse
+than honest-but-empty.
 
-```bash
-# First command reads file and caches fields
-$ ssql -input data.csv -select name,age | \
-# Second command uses cached fields (no -input specified)
-  ssql -group <TAB>
-# Completes: name, age (from cache)
+Today the fallback chain is short and honest:
+
+1. **Read from file** — if the source flag's value is available in the
+   same command (or a host `FieldSource` hook answers, see below)
+2. **Hint** — the configurable `FieldNameHint` (default `<FIELD>`)
+
+Hosts with a pipeline-aware completion path should override the hint
+with an actionable token so Tab tells the user what to press instead
+of inserting a dead placeholder:
+
+```go
+// At init: make the hint actionable for YOUR tool.
+cf.FieldNameHint = "Use-Ctrl-O"   // field-name positions
+cf.FieldValueHint = "Values-Use-Ctrl-O"  // value positions
 ```
 
-**Environment variables set:**
-- `AUTOCLI_FIELDS` - Generic "last used" fields
-- `AUTOCLI_FIELDS_<filename>` - File-specific cache
-
-This allows completion to work in piped commands where the input file isn't directly specified.
-
-**Fallback Behavior:**
-
-The completer tries multiple strategies in order:
-
-1. **Read from file** - If `-input` flag value is available
-2. **File-specific cache** - `AUTOCLI_FIELDS_data_csv`
-3. **Generic cache** - `AUTOCLI_FIELDS`
-4. **Hint** - Shows `<FIELD>` if all else fails
+(ssql binds Ctrl-O to compute the LIVE upstream schema and complete
+from that — the correct cross-pipe answer is recomputed, never
+cached. `AUTOCLI_CACHE_FILE` survives only as a per-invocation
+parameter such a host path can pass to value sampling; it is never
+exported into the shell.)
 
 **Complete Example:**
 
@@ -1642,13 +1653,6 @@ cmd := cf.NewCommand("datatool").
         Required().
         Help("Input data file").
         FilePattern("*.{csv,tsv,json,jsonl}").
-        Done().
-
-    Flag("-select").
-        String().
-        FieldsFromFlag("-input").
-        Accumulate().
-        Help("Fields to select").
         Done().
 
     Flag("-group").
@@ -1667,70 +1671,21 @@ cmd := cf.NewCommand("datatool").
         Done().
 
     Handler(func(ctx *cf.Context) error {
-        inputFile, _ := ctx.RequireString("-input")
-        groupBy := ctx.GetString("-group", "")
-
-        // Process data...
-        // When you read the file, also cache fields for pipelines:
-        fields := readFieldsFromFile(inputFile)
-        os.Setenv("AUTOCLI_FIELDS", strings.Join(fields, ","))
-
-        return nil
-    }).
-
-    Build()
-```
-
-**Note:** For best pipeline support, your program should also set `AUTOCLI_FIELDS` when reading data files during execution, not just during completion.
-
-#### Automatic Pipeline Field Caching
-
-**NEW in v4.1.0:** Field names are automatically cached when tab-completing a data file to a single match.
-
-**How It Works:**
-
-When a `FileCompleter` completes to a single data file (CSV, TSV, JSON, JSONL), it automatically:
-1. Extracts field names from the file
-2. Emits a cache directive with the field names
-3. The bash completion script sets `AUTOCLI_FIELDS` for downstream commands
-
-**Example Pipeline:**
-
-```bash
-# Tab complete the filename (narrows to single file)
-ssql from user<TAB>
-# Completes to: users.csv
-# Automatically caches fields: name, age, email, status
-
-# Now use in pipeline - field completion works!
-ssql from users.csv | ssql where -where <TAB>
-# Completes with: name, age, email, status
-```
-
-**No Configuration Needed:**
-
-Just use `FilePattern()` with data file extensions:
-
-```go
-cmd := cf.NewCommand("readcsv").
-    Flag("FILE").
-        String().
-        FilePattern("*.{csv,tsv,json,jsonl}").
-        Done().
-    Handler(func(ctx *cf.Context) error {
-        // Read and output CSV...
+        // ...
         return nil
     }).
     Build()
 ```
 
-Field caching happens automatically when tab completion narrows to a single data file.
+#### Historical: Automatic Pipeline Field Caching (removed)
 
-**Benefits:**
-
-- ✅ No special flags or workflow needed (the old `-cache DONE` pattern is obsolete)
-- ✅ Works with any command that uses `FileCompleter` for data files
-- ✅ Seamless integration with Unix pipeline workflows
+v4.1.0 auto-cached field names into the shell whenever `FileCompleter`
+narrowed to a single data file. This was removed together with the
+rest of the cross-pipe name cache (see above) — the exported names
+went stale across pipeline transforms. If you are upgrading from a
+pre-v4.13 release and relied on `AUTOCLI_FIELDS`, provide a
+pipeline-aware path in your tool instead (recompute the live schema;
+see the hint-token pattern above).
 
 #### Field Value Completion with FieldValuesFrom()
 
@@ -1772,9 +1727,9 @@ Flag("-match").
    - Looks at the previous argument ("name") using the `FIELD` reference
    - Reads the file from `-input` flag
    - Samples unique values from the "name" column
-   - Returns JSON directive with values + filtered completions
-4. Bash completion script parses JSON and exports `AUTOCLI_VALUES_name` env var
-5. Shows completions to user
+   - Returns the filtered values directly (the bash script quotes
+     spaced values with `printf %q`)
+4. Shows completions to user
 
 **Complete Example:**
 
@@ -1940,13 +1895,10 @@ Subcommand("filter").
 - **JSONL** (`.jsonl`, `.ndjson`) - JSON Lines (one object per line)
 - **JSON** (`.json`) - JSON arrays of objects
 
-**Environment Variable Caching:**
-
-Similar to `FieldsFromFlag()`, sampled values are cached in environment variables:
-
-- `AUTOCLI_VALUES_<fieldname>` - Comma-separated unique values for each field
-
-This allows faster subsequent completions without re-reading the file.
+**No caching:** values are sampled fresh per completion (the old
+`AUTOCLI_VALUES_<field>` env cache was removed with the rest of the
+cross-pipe caches — stale samples completed wrong values). Sampling
+is bounded by `MaxSamples`/`MaxRecords`, so it stays fast.
 
 **When to Use FieldValuesFrom():**
 
@@ -1969,19 +1921,54 @@ This allows faster subsequent completions without re-reading the file.
 | Completes | Field **names** | Field **values** |
 | Source | File header/schema | File data records |
 | Performance | Fast (~5ms) | Moderate (~15ms) |
-| Cache var | AUTOCLI_FIELDS | AUTOCLI_VALUES_<field> |
+| Host hook | FieldSource | FieldValueSource |
 | Use case | Select fields | Filter by values |
 | New in | v3.1.0 | v4.0.0 |
 
-**JSON Interchange Format:**
 
-V4.0.0 introduces a new JSON-based completion interchange format for robust handling of special characters:
+#### Host Hooks: FieldSource and FieldValueSource (v4.14.0)
 
-```json
-{"type":"field_values","field":"name","values":["Alice","Bob","Charlie"]}
+autocli reads csv/tsv/json(l) headers itself, but your tool may know
+sources autocli can't read: binary formats (parquet, arrow), http(s)
+URLs, or formats of your own. Rather than autocli growing readers and
+dependencies for every format, **the host installs a hook and
+completion asks the tool** — the program that owns the format
+knowledge is the authority on it.
+
+```go
+func init() {
+    // Asked BEFORE the built-in extractors. Return an error for
+    // anything the built-ins already handle — they're faster.
+    cf.FieldSource = func(source string) ([]string, error) {
+        if !strings.HasSuffix(source, ".mydata") {
+            return nil, fmt.Errorf("not mine")
+        }
+        return readMyDataHeader(source) // your reader, your rules
+    }
+
+    // Same contract for VALUE sampling (FieldValuesFrom positions).
+    cf.FieldValueSource = func(source, field string, maxSamples, maxRecords int) ([]string, error) {
+        if !strings.HasSuffix(source, ".mydata") {
+            return nil, fmt.Errorf("not mine")
+        }
+        return sampleMyDataColumn(source, field, maxSamples, maxRecords)
+    }
+}
 ```
 
-The bash completion script automatically detects and parses these JSON directives using `jq`, exporting the appropriate environment variables.
+**Contract:**
+
+- The hook is consulted first whenever a source file is on the line;
+  `(fields, nil)` answers, any error falls through to the built-in
+  extractors, and if those fail too the user sees the hint token.
+- Handle only what the built-ins can't — returning an error for plain
+  CSV keeps the fast in-process path serving it.
+- A robust pattern for tools with many formats: exec your own binary
+  in a "schema mode" and parse its output — then every format your
+  tool can read (including ones added later) completes with no
+  format-specific code in the hook. This is what ssql does: parquet
+  footers, presigned-URL http(s) sources, and future formats all
+  answer through one protocol.
 
 ### Custom Completers
 
