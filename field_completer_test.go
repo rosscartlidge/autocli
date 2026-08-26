@@ -1,6 +1,7 @@
 package completionflags
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -513,5 +514,81 @@ func TestExtractFieldsBinaryFormats(t *testing.T) {
 	got, err := fc.Complete(CompletionContext{GlobalFlags: map[string]any{"FILE": p}})
 	if err != nil || len(got) != 1 || got[0] != FieldNameHint {
 		t.Errorf("Complete = %v, %v; want [%s]", got, err, FieldNameHint)
+	}
+}
+
+// TestFieldSourceHook: the host hook is asked first, its error falls
+// back to the built-in extractors, and hook fields win over the file's.
+func TestFieldSourceHook(t *testing.T) {
+	dir := t.TempDir()
+	p := dir + "/x.csv"
+	os.WriteFile(p, []byte("filecol1,filecol2\n1,2\n"), 0o644)
+	fc := &FieldCompleter{SourceFlag: "FILE"}
+	ctx := CompletionContext{GlobalFlags: map[string]any{"FILE": p}}
+
+	defer func() { FieldSource = nil }()
+
+	// Hook answers: its fields win over the file's own header.
+	FieldSource = func(src string) ([]string, error) {
+		if src != p {
+			t.Errorf("hook got source %q, want %q", src, p)
+		}
+		return []string{"hooked_a", "hooked_b"}, nil
+	}
+	got, _ := fc.Complete(ctx)
+	if len(got) != 2 || got[0] != "hooked_a" {
+		t.Errorf("hook fields not used: %v", got)
+	}
+
+	// Hook errors: built-in extractor takes over.
+	FieldSource = func(string) ([]string, error) { return nil, fmt.Errorf("not mine") }
+	got, _ = fc.Complete(ctx)
+	if len(got) != 2 || got[0] != "filecol1" {
+		t.Errorf("fallback to file failed: %v", got)
+	}
+
+	// Hook errors AND file is binary: honest hint, never garbage.
+	pq := dir + "/x.parquet"
+	os.WriteFile(pq, []byte("PAR1\x15\x00"), 0o644)
+	got, _ = fc.Complete(CompletionContext{GlobalFlags: map[string]any{"FILE": pq}})
+	if len(got) != 1 || got[0] != FieldNameHint {
+		t.Errorf("want hint for unanswered binary, got %v", got)
+	}
+}
+
+// TestFieldValueSourceHook mirrors TestFieldSourceHook for value sampling.
+func TestFieldValueSourceHook(t *testing.T) {
+	dir := t.TempDir()
+	p := dir + "/x.csv"
+	os.WriteFile(p, []byte("k,v\na,1\nb,2\n"), 0o644)
+	fvc := &FieldValueCompleter{SourceFlag: "FILE", FieldArg: "FIELD"}
+	cmd := &Command{}
+	spec := &FlagSpec{Names: []string{"-if"}, ArgCount: 2, ArgNames: []string{"FIELD", "VALUE"}}
+	cmd.flags = append(cmd.flags, spec)
+	ctx := CompletionContext{
+		GlobalFlags:  map[string]any{"FILE": p},
+		Command:      cmd,
+		FlagName:     "-if",
+		PreviousArgs: []string{"k"},
+	}
+
+	defer func() { FieldValueSource = nil }()
+
+	FieldValueSource = func(src, field string, maxSamples, maxRecords int) ([]string, error) {
+		if src != p || field != "k" {
+			t.Errorf("hook got (%q,%q)", src, field)
+		}
+		return []string{"hooked_val"}, nil
+	}
+	got, _ := fvc.Complete(ctx)
+	if len(got) != 1 || got[0] != "hooked_val" {
+		t.Errorf("hook values not used: %v", got)
+	}
+
+	// Hook errors: built-in CSV sampler takes over.
+	FieldValueSource = func(string, string, int, int) ([]string, error) { return nil, fmt.Errorf("not mine") }
+	got, _ = fvc.Complete(ctx)
+	if len(got) != 2 || got[0] != "a" {
+		t.Errorf("fallback to sampler failed: %v", got)
 	}
 }

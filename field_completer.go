@@ -49,6 +49,20 @@ var FieldNameHint = "<FIELD>"
 // token, mirroring FieldNameHint.
 var FieldValueHint = "<VALUE>"
 
+// FieldSource, when set by the host tool, is asked for field names
+// BEFORE autocli's own file parsing. The host owns its format and
+// transport knowledge (binary columnar footers, http(s) URLs, formats
+// autocli has never heard of) — this hook lets completion ask the tool
+// instead of autocli growing readers and dependencies it shouldn't
+// have. Return (fields, nil) to answer; any error falls back to the
+// built-in extractors, so hosts only handle what those can't.
+var FieldSource func(source string) ([]string, error)
+
+// FieldValueSource is FieldSource's counterpart for VALUE sampling:
+// asked before sampleFieldValues with the same fallback contract.
+// maxSamples/maxRecords carry the completer's configured limits.
+var FieldValueSource func(source, field string, maxSamples, maxRecords int) ([]string, error)
+
 // FieldCompleter provides field name completion from data files (CSV, TSV, JSON, JSONL)
 // It reads the file specified by another flag and extracts field names from the header/first record
 type FieldCompleter struct {
@@ -84,6 +98,11 @@ func fieldsCompleter(sourceFlag string) Completer {
 func (fc *FieldCompleter) Complete(ctx CompletionContext) ([]string, error) {
 	filePath := fc.getFilePathFromContext(ctx)
 	if filePath != "" {
+		if FieldSource != nil {
+			if fields, err := FieldSource(filePath); err == nil && len(fields) > 0 {
+				return filterFields(fields, ctx.Partial), nil
+			}
+		}
 		if fields, err := extractFields(filePath); err == nil && len(fields) > 0 {
 			return filterFields(fields, ctx.Partial), nil
 		}
@@ -331,8 +350,16 @@ func (fvc *FieldValueCompleter) Complete(ctx CompletionContext) ([]string, error
 		return []string{FieldValueHint}, nil
 	}
 
-	// Sample field values from the file
-	values, err := sampleFieldValues(filePath, fieldName, maxSamples, maxRecords)
+	// Sample field values from the file: the host hook first (formats
+	// and transports autocli can't read), then the built-in samplers.
+	var values []string
+	var err error
+	if FieldValueSource != nil {
+		values, err = FieldValueSource(filePath, fieldName, maxSamples, maxRecords)
+	}
+	if err != nil || len(values) == 0 {
+		values, err = sampleFieldValues(filePath, fieldName, maxSamples, maxRecords)
+	}
 	if err != nil || len(values) == 0 {
 		return []string{"<VALUE>"}, nil
 	}
