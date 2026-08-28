@@ -51,6 +51,8 @@ func (cmd *Command) ExecuteWith(args []string, base *Context) error {
 		case "-completion-script":
 			fmt.Fprint(base.Stdout(), cmd.GenerateCompletionScript())
 			return nil
+		case "-spec-json":
+			return cmd.WriteSpecJSON(base.Stdout())
 		}
 	}
 
