@@ -79,3 +79,27 @@ func TestSpecJSON(t *testing.T) {
 		t.Errorf("-fast should be bool: %+v", f)
 	}
 }
+
+// TestSpecJSONDisplaySink: the sink key flows through the dump.
+func TestSpecJSONDisplaySink(t *testing.T) {
+	cmd := NewCommand("svc").
+		Subcommand("viz").
+		DisplaySink("chart").
+		Flag("-x").
+		String().
+		Done().
+		Handler(func(ctx *Context) error { return nil }).
+		Done().
+		Build()
+	var buf bytes.Buffer
+	if err := cmd.WriteSpecJSON(&buf); err != nil {
+		t.Fatal(err)
+	}
+	var spec SpecCommand
+	if err := json.Unmarshal(buf.Bytes(), &spec); err != nil {
+		t.Fatal(err)
+	}
+	if spec.Subcommands["viz"].DisplaySink != "chart" {
+		t.Fatalf("displaySink lost: %+v", spec.Subcommands["viz"])
+	}
+}

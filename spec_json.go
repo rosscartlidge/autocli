@@ -47,6 +47,7 @@ type SpecCommand struct {
 	ClauseDescription string                  `json:"clauseDescription,omitempty"`
 	Separators        []string                `json:"separators,omitempty"`
 	Examples          []Example               `json:"examples,omitempty"`
+	DisplaySink       string                  `json:"displaySink,omitempty"`
 	Flags             []SpecFlag              `json:"flags,omitempty"`
 	Subcommands       map[string]*SpecCommand `json:"subcommands,omitempty"`
 }
@@ -112,6 +113,7 @@ func specSubcommand(name string, sc *Subcommand) *SpecCommand {
 		ClauseDescription: sc.ClauseDescription,
 		Separators:        sc.Separators,
 		Examples:          sc.Examples,
+		DisplaySink:       sc.DisplaySink,
 	}
 	for _, fs := range sc.Flags {
 		out.Flags = append(out.Flags, specFlag(fs))

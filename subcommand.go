@@ -17,6 +17,13 @@ type Subcommand struct {
 	Separators        []string
 	ClauseDescription string                 // Custom description for CLAUSES section (optional)
 	Subcommands       map[string]*Subcommand // Nested subcommands (for multi-level commands like "git remote add")
+
+	// DisplaySink marks a terminal visualization stage (ssql DFC119):
+	// its argv IS the visual config. Consumers (a live workspace)
+	// recognize the key via -spec-json, decode the stage's flags
+	// generically, and render — the command still executes normally
+	// in a plain shell (emitting its artifact).
+	DisplaySink string
 }
 
 // Builder is an interface for types that support the fluent subcommand API
@@ -79,6 +86,13 @@ func (cb *CommandBuilder) Subcommand(name string) *SubcommandBuilder {
 // Description sets the subcommand description
 func (sb *SubcommandBuilder) Description(desc string) *SubcommandBuilder {
 	sb.subcmd.Description = desc
+	return sb
+}
+
+// DisplaySink marks this subcommand as a display sink (see the
+// Subcommand field) with the given renderer key.
+func (sb *SubcommandBuilder) DisplaySink(key string) *SubcommandBuilder {
+	sb.subcmd.DisplaySink = key
 	return sb
 }
 
