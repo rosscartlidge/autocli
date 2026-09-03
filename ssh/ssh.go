@@ -24,8 +24,8 @@ import (
 	"sync"
 	"time"
 
-	cf "github.com/rosscartlidge/autocli/v4"
 	"github.com/rosscartlidge/autocli/shell"
+	cf "github.com/rosscartlidge/autocli/v4"
 	gossh "golang.org/x/crypto/ssh"
 )
 
@@ -121,6 +121,12 @@ type Options struct {
 	// receives the per-session State, so it sees the same handle the
 	// handlers do. See shell.SchemaWalkFunc.
 	SchemaWalk shell.SchemaWalkFunc
+
+	// Validate, if set, is passed through to each session's shell: a
+	// pre-execution check over the line's tokenised stages (see
+	// shell.Options.Validate). Lets the host refuse lines that would
+	// run but print nothing — a transform with no source upstream.
+	Validate func(stages [][]string) error
 
 	// GraceTimeout is how long Serve waits for in-flight sessions to
 	// finish after ctx cancellation. Default 5s.
@@ -453,6 +459,7 @@ func handleSession(ctx context.Context, ch gossh.Channel, reqs <-chan *gossh.Req
 		Ctx:         ctx,
 		Settings:    opts.Settings,
 		SchemaWalk:  opts.SchemaWalk,
+		Validate:    opts.Validate,
 		ResizeChan:  resizeCh,
 	}
 	if opts.HistoryDir != "" {
