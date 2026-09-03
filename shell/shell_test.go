@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"errors"
 	"bytes"
 	"context"
 	"fmt"
@@ -316,5 +317,34 @@ func TestServe_EOFExits(t *testing.T) {
 	}
 	if !strings.Contains(out, "n=1") {
 		t.Errorf("missing inc output: %q", out)
+	}
+}
+
+// TestServe_ValidateHook: Options.Validate sees every line's stages
+// before execution and a non-nil error skips the line (single commands
+// and pipelines alike), while accepted lines run unchanged.
+func TestServe_ValidateHook(t *testing.T) {
+	state := &testState{}
+	cli := buildTestCLI(state)
+	var seen [][][]string
+	opts := Options{State: state, Validate: func(stages [][]string) error {
+		seen = append(seen, stages)
+		if stages[0][0] == "read" && len(stages) == 1 {
+			return errors.New("refused: read needs a source")
+		}
+		return nil
+	}}
+	out := runShellWithInput(t, cli, opts, "inc\nread\ninc\n")
+	if state.n != 2 {
+		t.Errorf("accepted lines must run: state.n = %d, want 2", state.n)
+	}
+	if strings.Contains(out, "current=") {
+		t.Errorf("refused line must not execute, output: %q", out)
+	}
+	if !strings.Contains(out, "refused: read needs a source") {
+		t.Errorf("refusal must be printed, output: %q", out)
+	}
+	if len(seen) != 3 || len(seen[1]) != 1 || seen[1][0][0] != "read" {
+		t.Errorf("Validate should see each line's stages: %v", seen)
 	}
 }

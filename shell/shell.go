@@ -131,6 +131,17 @@ type Options struct {
 	// payloads; local shell.Serve callers can ignore it (x/term
 	// inspects the local terminal directly when MakeRaw is used).
 	ResizeChan <-chan TerminalSize
+
+	// Validate, if set, is called with every line's tokenised stages
+	// (a single command is one stage) BEFORE anything executes. A
+	// non-nil error is printed to Stderr (and passed to OnError) and
+	// the line is skipped. Hosts use it to refuse lines that would run
+	// but do nothing useful — e.g. a pipeline whose first stage is a
+	// transform: stage 0 reads an EMPTY stdin by design (see the
+	// dispatch loop), so `where … | to table` without a source would
+	// print zero rows and no error. The shell stays host-agnostic; it
+	// only asks. Nil means every line runs.
+	Validate func(stages [][]string) error
 }
 
 // TerminalSize is a width+height pair pushed through Options.ResizeChan
@@ -319,6 +330,15 @@ func Serve(cli *cf.Command, opts Options) error {
 				}
 				continue
 			}
+			if opts.Validate != nil {
+				if verr := opts.Validate(stages); verr != nil {
+					fmt.Fprintf(opts.Stderr, "%v\n", verr)
+					if opts.OnError != nil {
+						opts.OnError(verr)
+					}
+					continue
+				}
+			}
 			if err := runPipeline(cli, stages, base); err != nil {
 				fmt.Fprintf(opts.Stderr, "%v\n", err)
 				if opts.OnError != nil {
@@ -328,6 +348,15 @@ func Serve(cli *cf.Command, opts Options) error {
 			continue
 		}
 
+		if opts.Validate != nil {
+			if verr := opts.Validate([][]string{args}); verr != nil {
+				fmt.Fprintf(opts.Stderr, "%v\n", verr)
+				if opts.OnError != nil {
+					opts.OnError(verr)
+				}
+				continue
+			}
+		}
 		if err := cli.ExecuteWith(args, base); err != nil {
 			// Friendly message for unknown commands instead of dumping
 			// the full help screen on every typo.
