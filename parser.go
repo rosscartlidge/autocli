@@ -249,6 +249,20 @@ func (cmd *Command) Parse(args []string) (*Context, error) {
 			continue
 		}
 
+		// The flag form of a positional: the next element is taken
+		// verbatim, whatever it looks like (see ArgFlag).
+		if arg == ArgFlag {
+			if i+1 >= len(args) {
+				return nil, ParseError{Flag: arg, Message: "requires 1 argument(s)"}
+			}
+			currentClause.Positional = append(currentClause.Positional, args[i+1])
+			i += 2
+			continue
+		}
+		if arg == "+"+ArgFlag[1:] {
+			return nil, ParseError{Flag: arg, Message: "has no + form; use " + ArgFlag}
+		}
+
 		// Check if this is a flag (starts with - or +)
 		if strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "+") {
 			consumed, err := cmd.parseFlag(args, i, &currentClause, ctx)

@@ -189,6 +189,48 @@ Handler(func(ctx *cf.Context) error {
 - After subcommand: Args go to subcommand context
 - After clauses: Terminates all clause parsing, args go to current context
 
+### Positional Arguments as Flags (`-arg VALUE`)
+
+A bare positional that begins with `-` or `+` is parsed as a flag, and one
+equal to a separator ends the clause. For a person typing a command that
+is a convenience; for a **program** placing data in a positional slot it is
+argument injection (CWE-88): a value can change the shape of the command.
+
+```bash
+myapp include name -generate            # "-generate" is a flag
+```
+
+Every command therefore accepts the reserved flag `-arg VALUE`, which
+appends VALUE to the current clause's positionals **without looking at
+it**. A flag's arguments are bound by count and never inspected as syntax;
+`-arg` puts positionals under that same rule:
+
+```bash
+myapp include -arg name -arg -generate  # two positionals: "name", "-generate"
+myapp sort -arg dept - -arg -desc -desc # two clauses; the second sorts by a column "-desc"
+myapp from -arg csv                     # "csv" is the FILE, not the `csv` subcommand
+```
+
+- Bare positionals and `-arg` may be mixed; order of appearance is the
+  order of the slot. Handlers cannot tell the two forms apart.
+- Typed positionals are validated as usual (`-arg seven` for an `Int`
+  positional is an error).
+- Completion after `-arg` is the completion of the slot being filled, even
+  when the text typed so far starts with a dash.
+- The name is reserved: declaring `-arg` (or `+arg`) panics in the builder,
+  and `+arg` on a command line is an error. Matching is exact, so `-arg-max`
+  is an ordinary flag.
+- `-spec-json` advertises it at the root as `"positionalFlag": "-arg"`.
+- Why not `--`? It is a mode switch (one omission reopens the hole), it
+  cannot coexist with `-`/`+` clause separators (is a later `-` data or a
+  separator?), and it already means "remaining args" (above).
+
+**Rule for tools that build command lines from data: emit every positional
+as `-arg VALUE`.** Then, after the command path, every element is either a
+declared flag name or is consumed by the preceding flag's arity, and no
+value can be read as syntax. The command path itself (`from`, `csv`) is not
+data: take it only from the closed vocabulary in `-spec-json`.
+
 ## Building Commands
 
 ### Command Builder Methods

@@ -449,13 +449,7 @@ func (fvc *FieldValueCompleter) getFilePathFromContext(ctx CompletionContext) st
 				// This is our positional - get its value from Args[i]
 				if i < len(ctx.Args) {
 					// Skip any flags in Args to find positional values
-					positionalValues := []string{}
-					for _, arg := range ctx.Args {
-						// Skip flags and their arguments
-						if !strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "+") {
-							positionalValues = append(positionalValues, arg)
-						}
-					}
+					positionalValues := ctx.Command.positionalValues(ctx.Args)
 					if i < len(positionalValues) {
 						return positionalValues[i]
 					}

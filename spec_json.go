@@ -50,6 +50,12 @@ type SpecCommand struct {
 	DisplaySink       string                  `json:"displaySink,omitempty"`
 	Flags             []SpecFlag              `json:"flags,omitempty"`
 	Subcommands       map[string]*SpecCommand `json:"subcommands,omitempty"`
+
+	// PositionalFlag (root only) is the reserved flag that carries one
+	// positional argument by arity on EVERY command: `-arg VALUE`.
+	// Builders emitting command lines from data should use it for every
+	// positional so no value can be read as a flag or a separator.
+	PositionalFlag string `json:"positionalFlag,omitempty"`
 }
 
 func specArgFromCompleter(c Completer) SpecArg {
@@ -130,10 +136,11 @@ func specSubcommand(name string, sc *Subcommand) *SpecCommand {
 // Spec builds the SpecCommand tree for this command.
 func (cmd *Command) Spec() *SpecCommand {
 	out := &SpecCommand{
-		Name:       cmd.name,
-		Help:       cmd.description,
-		Separators: cmd.separators,
-		Examples:   cmd.examples,
+		Name:           cmd.name,
+		Help:           cmd.description,
+		Separators:     cmd.separators,
+		Examples:       cmd.examples,
+		PositionalFlag: ArgFlag,
 	}
 	for _, fs := range cmd.flags {
 		out.Flags = append(out.Flags, specFlag(fs))

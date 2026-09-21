@@ -449,6 +449,19 @@ Handler(func(ctx *cf.Context) error {
 })
 ```
 
+### 5. Injection-Safe Positionals (`-arg VALUE`)
+
+A bare positional that starts with `-` is read as a flag. Programs that
+build command lines from data use the reserved `-arg` flag, available on
+every command, which binds the value by arity so it can never be syntax:
+
+```bash
+myapp include name -generate            # "-generate" is a flag
+myapp include -arg name -arg -generate  # two positionals
+```
+
+See [doc/USAGE.md](doc/USAGE.md#positional-arguments-as-flags--arg-value).
+
 ## Built-in Completers
 
 ### FileCompleter

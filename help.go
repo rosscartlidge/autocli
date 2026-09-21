@@ -78,6 +78,8 @@ func (cmd *Command) generateHelp(embedded bool) string {
 			sb.WriteString(cmd.formatPositional(spec))
 			sb.WriteString("\n")
 		}
+		sb.WriteString(argFlagHelpNote)
+		sb.WriteString("\n")
 	}
 
 	// Options (named flags)

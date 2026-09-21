@@ -125,6 +125,7 @@ func (sb *SubcommandBuilder) Separators(seps ...string) *SubcommandBuilder {
 
 // Flag starts defining a new flag for this subcommand
 func (sb *SubcommandBuilder) Flag(names ...string) *SubcommandFlagBuilder {
+	checkReservedFlagNames(names)
 	// Check for conflicts with root global flags
 	rootGlobals := sb.parent.getRootGlobalFlags()
 	for _, name := range names {
@@ -461,6 +462,8 @@ func (subcmd *Subcommand) GenerateHelp(parentName string) string {
 			sb.WriteString(formatPositionalForSubcommand(spec))
 			sb.WriteString("\n")
 		}
+		sb.WriteString(argFlagHelpNote)
+		sb.WriteString("\n")
 	}
 
 	// Separate global and local flags

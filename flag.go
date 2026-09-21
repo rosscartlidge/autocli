@@ -74,6 +74,51 @@ type FlagSpec struct {
 	demoted bool
 }
 
+// ArgFlag is the reserved flag form of a positional argument, available on
+// every command: `-arg VALUE` appends VALUE to the current clause's
+// positionals WITHOUT looking at it. A bare positional that begins with -
+// or + is read as a flag, and one equal to a separator ends the clause, so
+// a program placing untrusted text in a positional slot can have it change
+// the command's shape (argument injection, CWE-88). A flag's arguments are
+// bound by count and never inspected as syntax; -arg puts positionals
+// under that same rule:
+//
+//	include name -generate            // "-generate" is parsed as a flag
+//	include -arg name -arg -generate  // two field names
+//	sort -arg dept - -arg -desc       // two clauses; the second sorts by "-desc"
+//
+// Bare positionals stay as the form people type; the two may be mixed and
+// order of appearance is the order of the slot. Tools that build command
+// lines from data should emit only the -arg form. Commands cannot declare a
+// flag with this name (the builders panic), and the + prefix is rejected.
+const ArgFlag = "-arg"
+
+// argFlagSpec is what findFlagSpec answers for ArgFlag, so every walker
+// that skips a flag's arguments by arity (completion, help-at, cursor
+// analysis) handles -arg without knowing about it.
+var argFlagSpec = &FlagSpec{
+	Names:       []string{ArgFlag},
+	Description: "Pass VALUE as a positional argument, even if it begins with - or +",
+	Scope:       ScopeLocal,
+	ArgCount:    1,
+	ArgNames:    []string{"VALUE"},
+	ArgTypes:    []ArgType{ArgString},
+	Hidden:      true,
+}
+
+// argFlagHelpNote is appended to the ARGUMENTS section of help text.
+const argFlagHelpNote = "    Any argument may also be written " + ArgFlag + " VALUE, which is required when\n" +
+	"    VALUE begins with - or + (it is then never read as a flag).\n"
+
+// checkReservedFlagNames panics when a command declares a reserved name.
+func checkReservedFlagNames(names []string) {
+	for _, n := range names {
+		if n == ArgFlag || n == "+"+ArgFlag[1:] {
+			panic(fmt.Sprintf("flag name %s is reserved: it is the flag form of a positional argument on every command", n))
+		}
+	}
+}
+
 // ArgType represents the type of a flag argument
 type ArgType int
 
@@ -427,7 +472,73 @@ func (cmd *Command) findFlagSpec(name string) *FlagSpec {
 			}
 		}
 	}
+	if name == ArgFlag {
+		return argFlagSpec
+	}
 	return nil
+}
+
+// positionalValues returns the positional arguments in args, in order:
+// bare ones and those carried by ArgFlag. Flags are skipped together with
+// their arguments (by arity); separators are skipped. A trailing flag whose
+// arguments are incomplete contributes nothing.
+func (cmd *Command) positionalValues(args []string) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == ArgFlag {
+			if i+1 < len(args) {
+				out = append(out, args[i+1])
+			}
+			i++
+			continue
+		}
+		if cmd.isSeparator(arg) {
+			continue
+		}
+		if strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "+") {
+			normalized := arg
+			if strings.HasPrefix(arg, "+") {
+				normalized = "-" + arg[1:]
+			}
+			if spec := cmd.findFlagSpec(normalized); spec != nil {
+				i += spec.ArgCount
+			}
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
+}
+
+// isArgFlagValue reports whether args[idx] is the VALUE of an ArgFlag,
+// i.e. a positional that must not be read as a flag whatever it looks
+// like. It walks forward by arity, so an "-arg" that is itself the
+// argument of another flag (`-if name eq -arg`) does not count.
+func (cmd *Command) isArgFlagValue(args []string, idx int) bool {
+	for i := 0; i < len(args) && i < idx; i++ {
+		arg := args[i]
+		if arg == ArgFlag {
+			if i+1 == idx {
+				return true
+			}
+			i++
+			continue
+		}
+		if cmd.isSeparator(arg) {
+			continue
+		}
+		if strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "+") {
+			normalized := arg
+			if strings.HasPrefix(arg, "+") {
+				normalized = "-" + arg[1:]
+			}
+			if spec := cmd.findFlagSpec(normalized); spec != nil {
+				i += spec.ArgCount
+			}
+		}
+	}
+	return false
 }
 
 // getPrefixHandler returns the command's prefix handler or default

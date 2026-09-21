@@ -394,6 +394,18 @@ When implementing tree walking (parser, completion):
 - Don't lose track of which level you're at
 - Remember `leafSubcmd` to distinguish intermediate vs leaf nodes
 
+### Walking args by hand instead of by arity
+
+Anything that scans an argument list (completion, help-at, a new
+analyser) must skip a flag's arguments by `ArgCount` and must treat
+`-arg VALUE` (`ArgFlag`, the reserved flag form of a positional) as ONE
+positional whatever VALUE looks like. Use `cmd.positionalValues(args)` /
+`cmd.isArgFlagValue(args, idx)` in `flag.go` rather than a fresh
+`strings.HasPrefix(arg, "-")` loop: `findFlagSpec` answers for `-arg` on
+every command, so arity-aware walkers handle it for free, and naive ones
+are exactly how a value becomes syntax. Never add a second reserved
+positional mechanism (`--` already means RemainingArgs).
+
 ## Version History
 
 - **v0.1.0** - Initial release with clauses, positional args

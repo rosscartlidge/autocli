@@ -60,6 +60,7 @@ func (cb *CommandBuilder) PrefixHandler(h PrefixHandler) *CommandBuilder {
 
 // Flag starts defining a new flag
 func (cb *CommandBuilder) Flag(names ...string) *FlagBuilder {
+	checkReservedFlagNames(names)
 	spec := &FlagSpec{
 		Names:         names,
 		Scope:         ScopeLocal, // Default to local scope

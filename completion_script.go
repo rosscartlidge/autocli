@@ -319,8 +319,12 @@ func (cmd *Command) analyzeCompletionContext(args []string, pos int) CompletionC
 	// Adjust pos for the rest of the analysis to work with args indices
 	pos = argIndex
 
+	// The value of -arg is a positional whatever it looks like: never
+	// complete it as a flag name.
+	onArgFlagValue := cmd.isArgFlagValue(args, argIndex)
+
 	// If completing a flag name
-	if strings.HasPrefix(ctx.Partial, "-") || strings.HasPrefix(ctx.Partial, "+") {
+	if !onArgFlagValue && (strings.HasPrefix(ctx.Partial, "-") || strings.HasPrefix(ctx.Partial, "+")) {
 		// Complete flag names
 		return ctx
 	}
@@ -364,6 +368,9 @@ func (cmd *Command) analyzeCompletionContext(args []string, pos int) CompletionC
 	}
 
 	flagPos, spec := cmd.findLastFlag(args, searchPos)
+	if onArgFlagValue {
+		flagPos, spec = argIndex-1, argFlagSpec
+	}
 	if spec != nil {
 		ctx.FlagName = spec.Names[0]
 		ctx.FlagSpec = spec
@@ -425,6 +432,12 @@ func (cmd *Command) findLastFlag(args []string, pos int) (int, *FlagSpec) {
 
 // executeCompletion executes the appropriate completion based on context
 func (cmd *Command) executeCompletion(ctx CompletionContext) ([]string, error) {
+	// Case 0: the value of -arg completes as the positional slot it fills,
+	// even when what is typed so far begins with - or +.
+	if ctx.FlagName == ArgFlag && ctx.ArgIndex == 0 {
+		return cmd.completePositional(ctx)
+	}
+
 	// Case 1: Completing a flag name
 	if strings.HasPrefix(ctx.Partial, "-") || strings.HasPrefix(ctx.Partial, "+") {
 		return cmd.completeFlags(ctx.Partial), nil
@@ -550,26 +563,14 @@ func (cmd *Command) completePositional(ctx CompletionContext) ([]string, error) 
 
 	// Count how many positional arguments are before the current position
 	// We need to count non-flag, non-separator arguments in ctx.Args up to ctx.Position
-	positionalCount := 0
 	argIndex := ctx.Position - 1 // Convert from COMP_WORDS position to args index
-
-	for i := 0; i < argIndex && i < len(ctx.Args); i++ {
-		arg := ctx.Args[i]
-		// Skip flags and separators
-		if strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "+") || cmd.isSeparator(arg) {
-			// Check if this is a flag that takes arguments
-			if strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "+") {
-				spec := cmd.findFlagSpec(arg)
-				if spec != nil {
-					// Skip this flag's arguments
-					i += spec.ArgCount
-				}
-			}
-			continue
-		}
-		// This is a positional argument
-		positionalCount++
+	if argIndex > len(ctx.Args) {
+		argIndex = len(ctx.Args)
 	}
+	if argIndex < 0 {
+		argIndex = 0
+	}
+	positionalCount := len(cmd.positionalValues(ctx.Args[:argIndex]))
 
 	// Find the target positional spec based on count
 	var targetSpec *FlagSpec
