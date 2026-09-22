@@ -231,6 +231,25 @@ declared flag name or is consumed by the preceding flag's arity, and no
 value can be read as syntax. The command path itself (`from`, `csv`) is not
 data: take it only from the closed vocabulary in `-spec-json`.
 
+### Validating Without Running (`Check`)
+
+`cmd.Check(args)` parses and validates an argument list exactly as
+`Execute` would (root flags, subcommand resolution, clauses, required
+flags, argument types) and runs no handler. It is the protocol surface
+for "is this a well-formed invocation?": a tool that assembles command
+lines from data, such as a pipeline runner, validates every stage before
+it starts any, and never keeps its own copy of the grammar.
+
+```go
+if err := cmd.Check([]string{"from", "csv", "-arg", "-weird.csv", "-n", "3"}); err != nil {
+    // "flag -n: invalid value ..." / "unknown command" / "requires 1 argument(s)"
+}
+```
+
+Help and meta flags (`-help`, `-spec-json`, …) are well-formed by
+definition. An intermediate subcommand with no handler is an error, since
+executing it would only print help.
+
 ## Building Commands
 
 ### Command Builder Methods

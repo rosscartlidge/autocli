@@ -297,6 +297,76 @@ func (cmd *Command) Parse(args []string) (*Context, error) {
 	return ctx, nil
 }
 
+// Check parses and validates args exactly as Execute would, running no
+// handler and printing nothing: the same root-flag walk, subcommand
+// resolution, clause parse and required-flag validation. It is the
+// protocol surface for "is this argv a well-formed invocation of this
+// command?" (ssql DFC134 §5.1: a pipeline runner validates every stage
+// before it starts any), so consumers need not keep a second copy of the
+// grammar. Help and meta flags (-help, -complete, -spec-json, …) are
+// well-formed by definition. An unknown command is ErrUnknownCommand; an
+// intermediate node with no handler is reported as one, since executing
+// it would only print help.
+func (cmd *Command) Check(args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "-help", "--help", "-h", "-man", "-complete", "-help-at", "-completion-script", "-spec-json":
+			return nil
+		}
+	}
+	rootGlobalFlags, remaining, err := cmd.parseRootGlobalFlags(args)
+	if err != nil {
+		return err
+	}
+	if len(remaining) > 0 && cmd.hasSubcommand(remaining[0]) {
+		path := []string{}
+		currentSubcommands := cmd.subcommands
+		var leaf *Subcommand
+		argIndex := 0
+		for argIndex < len(remaining) {
+			subcmd := currentSubcommands[remaining[argIndex]]
+			if subcmd == nil {
+				break
+			}
+			path = append(path, remaining[argIndex])
+			leaf = subcmd
+			argIndex++
+			if argIndex < len(remaining) {
+				switch remaining[argIndex] {
+				case "-help", "--help", "-h", "-man":
+					return nil
+				}
+			}
+			if subcmd.Subcommands == nil {
+				break
+			}
+			currentSubcommands = subcmd.Subcommands
+		}
+		if leaf.Handler == nil {
+			if len(leaf.Subcommands) > 0 {
+				return fmt.Errorf("%q needs a subcommand", strings.Join(path, " "))
+			}
+			return fmt.Errorf("subcommand %q has no handler", strings.Join(path, " "))
+		}
+		ctx, err := cmd.parseSubcommand(leaf, rootGlobalFlags, remaining[argIndex:])
+		if err != nil {
+			return err
+		}
+		return cmd.validateSubcommand(leaf, ctx)
+	}
+	if cmd.handler == nil {
+		if len(remaining) > 0 && !strings.HasPrefix(remaining[0], "-") && !strings.HasPrefix(remaining[0], "+") {
+			return ErrUnknownCommand(remaining[0])
+		}
+		return nil // bare `myapp` prints help
+	}
+	ctx, err := cmd.Parse(args)
+	if err != nil {
+		return err
+	}
+	return cmd.validate(ctx)
+}
+
 // parseFlag handles both -flag and +flag
 func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, ctx *Context) (int, error) {
 	flagArg := args[pos]
