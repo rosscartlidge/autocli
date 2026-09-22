@@ -250,6 +250,11 @@ Help and meta flags (`-help`, `-spec-json`, …) are well-formed by
 definition. An intermediate subcommand with no handler is an error, since
 executing it would only print help.
 
+A bare word that names no subcommand is `ErrUnknownCommand`, for `Check`
+and `Execute` alike, when the root has no handler or has a handler but
+declares no positional argument of its own (a root whose handler prints
+a banner does not get to swallow `myapp frob` as a positional).
+
 ## Building Commands
 
 ### Command Builder Methods

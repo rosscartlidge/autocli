@@ -1,6 +1,7 @@
 package completionflags
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -55,5 +56,23 @@ func TestCheck(t *testing.T) {
 	}
 	if ran {
 		t.Error("Check ran a handler")
+	}
+
+	// A root WITH a handler but no positionals of its own, and
+	// subcommands: a bare unknown word is still an unknown command, for
+	// Check and for Execute alike.
+	banner := NewCommand("app").
+		Subcommand("from").Flag("FILE").String().Global().Done().Handler(func(*Context) error { return nil }).Done().
+		Handler(func(*Context) error { ran = true; return nil }).
+		Build()
+	if err := banner.Check([]string{"frob"}); err == nil {
+		t.Error("Check accepted an unknown word on a root with a handler")
+	}
+	var unknown ErrUnknownCommand
+	if err := banner.Execute([]string{"frob"}); !errors.As(err, &unknown) {
+		t.Errorf("Execute: want ErrUnknownCommand, got %v", err)
+	}
+	if err := banner.Execute(nil); err != nil || !ran {
+		t.Errorf("bare root must still run the root handler: %v ran=%v", err, ran)
 	}
 }

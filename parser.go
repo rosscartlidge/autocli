@@ -159,11 +159,8 @@ func (cmd *Command) ExecuteWith(args []string, base *Context) error {
 	//      (the previous behaviour, preserved for backwards compat).
 	//   2) Either no args at all, or args is just flags, or there is
 	//      a root handler → fall through to existing paths.
-	if cmd.handler == nil && len(remaining) > 0 {
-		first := remaining[0]
-		if !strings.HasPrefix(first, "-") && !strings.HasPrefix(first, "+") {
-			return ErrUnknownCommand(first)
-		}
+	if cmd.looksLikeUnknownCommand(remaining) {
+		return ErrUnknownCommand(remaining[0])
 	}
 
 	if cmd.handler == nil {
@@ -297,6 +294,27 @@ func (cmd *Command) Parse(args []string) (*Context, error) {
 	return ctx, nil
 }
 
+// looksLikeUnknownCommand: the first remaining argument is a bare word
+// (not a flag), it names no subcommand, and the root has nowhere to put
+// it — no handler, or a handler but no positional argument of its own
+// while subcommands exist. `myapp frob` on a command whose root handler
+// only prints a banner used to print the banner and exit 0 (ssql, found
+// 2026-09-22 when a pipeline document with a misspelt command passed
+// validation).
+func (cmd *Command) looksLikeUnknownCommand(remaining []string) bool {
+	if len(remaining) == 0 {
+		return false
+	}
+	first := remaining[0]
+	if strings.HasPrefix(first, "-") || strings.HasPrefix(first, "+") {
+		return false
+	}
+	if cmd.handler == nil {
+		return true
+	}
+	return len(cmd.subcommands) > 0 && len(cmd.positionalFlags()) == 0
+}
+
 // Check parses and validates args exactly as Execute would, running no
 // handler and printing nothing: the same root-flag walk, subcommand
 // resolution, clause parse and required-flag validation. It is the
@@ -354,10 +372,10 @@ func (cmd *Command) Check(args []string) error {
 		}
 		return cmd.validateSubcommand(leaf, ctx)
 	}
+	if cmd.looksLikeUnknownCommand(remaining) {
+		return ErrUnknownCommand(remaining[0])
+	}
 	if cmd.handler == nil {
-		if len(remaining) > 0 && !strings.HasPrefix(remaining[0], "-") && !strings.HasPrefix(remaining[0], "+") {
-			return ErrUnknownCommand(remaining[0])
-		}
 		return nil // bare `myapp` prints help
 	}
 	ctx, err := cmd.Parse(args)
