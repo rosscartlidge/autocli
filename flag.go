@@ -24,6 +24,13 @@ type Command struct {
 	prefixHandler PrefixHandler
 	examples      []Example
 	subcommands   map[string]*Subcommand // Subcommands for this command
+
+	// strictPositionals makes a positional argument no spec consumes a
+	// parse error (StrictPositionals). Off, the leftovers stay in the
+	// clause's Positional for callers that read them themselves — the
+	// historical behaviour, under which `tool count foo` ran as `tool
+	// count`.
+	strictPositionals bool
 }
 
 // FlagSpec defines a flag with 0 or more arguments

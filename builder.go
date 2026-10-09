@@ -59,6 +59,16 @@ func (cb *CommandBuilder) PrefixHandler(h PrefixHandler) *CommandBuilder {
 }
 
 // Flag starts defining a new flag
+// StrictPositionals makes an argument that no positional spec consumes
+// a parse error, in the root command and every subcommand: a command
+// that declares no positionals refuses one, a command with N refuses an
+// (N+1)th, a Variadic one takes them all. Off by default: the leftovers
+// stay in each clause's Positional for a handler that reads them.
+func (cb *CommandBuilder) StrictPositionals() *CommandBuilder {
+	cb.cmd.strictPositionals = true
+	return cb
+}
+
 func (cb *CommandBuilder) Flag(names ...string) *FlagBuilder {
 	checkReservedFlagNames(names)
 	spec := &FlagSpec{

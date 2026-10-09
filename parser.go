@@ -686,8 +686,19 @@ func (cmd *Command) validate(ctx *Context) error {
 // matchPositionals matches positional arguments to positional flag specs
 func (cmd *Command) matchPositionals(ctx *Context) error {
 	positionalSpecs := cmd.positionalFlags()
+	// A command that dispatches to subcommands sees the subcommand name
+	// and its arguments as positionals here; strictness applies in the
+	// leaf (parseSubcommand's tempCmd), not at the dispatcher.
+	strict := cmd.strictPositionals && len(cmd.subcommands) == 0
 	if len(positionalSpecs) == 0 {
-		return nil // No positional specs defined
+		// No positional specs defined: nothing to match, and under
+		// StrictPositionals nothing may be given.
+		for _, c := range ctx.Clauses {
+			if strict && len(c.Positional) > 0 {
+				return cmd.unexpectedPositional(c.Positional[0])
+			}
+		}
+		return nil
 	}
 
 	// Separate global and local positionals
@@ -714,18 +725,36 @@ func (cmd *Command) matchPositionals(ctx *Context) error {
 	}
 
 	// Match local positionals in each clause
-	if len(localPositionals) > 0 {
-		for i := range ctx.Clauses {
-			positionalArgs := ctx.Clauses[i].Positional
-			_, err := cmd.matchPositionalsToSpecs(localPositionals, positionalArgs, ctx.Clauses[i].Flags)
+	for i := range ctx.Clauses {
+		positionalArgs := ctx.Clauses[i].Positional
+		consumed := 0
+		if len(localPositionals) > 0 {
+			var err error
+			consumed, err = cmd.matchPositionalsToSpecs(localPositionals, positionalArgs, ctx.Clauses[i].Flags)
 			if err != nil {
 				return fmt.Errorf("clause %d: %w", i, err)
 			}
 			// Note: we keep remaining positional args in clause for backward compatibility
 		}
+		if strict && consumed < len(positionalArgs) {
+			return cmd.unexpectedPositional(positionalArgs[consumed])
+		}
 	}
 
 	return nil
+}
+
+// unexpectedPositional is the StrictPositionals error for an argument no
+// positional spec consumed.
+func (cmd *Command) unexpectedPositional(arg string) error {
+	name := cmd.name
+	if name == "" {
+		name = "this command"
+	}
+	if len(cmd.positionalFlags()) == 0 {
+		return fmt.Errorf("unexpected argument %q: %s takes no positional arguments (see -help)", arg, name)
+	}
+	return fmt.Errorf("unexpected argument %q: %s takes no further positional arguments (see -help)", arg, name)
 }
 
 // matchPositionalsToSpecs matches positional arguments to specs and stores in target map
@@ -851,10 +880,11 @@ func (cmd *Command) parseSubcommand(subcmd *Subcommand, rootGlobals map[string]i
 	// Create a temporary command with both root global flags and subcommand's flags
 	// This allows root globals to be specified after the subcommand name
 	tempCmd := &Command{
-		name:          subcmd.Name,
-		flags:         append(cmd.rootGlobalFlags(), subcmd.Flags...),
-		separators:    subcmd.Separators,
-		prefixHandler: cmd.prefixHandler,
+		name:              subcmd.Name,
+		flags:             append(cmd.rootGlobalFlags(), subcmd.Flags...),
+		separators:        subcmd.Separators,
+		prefixHandler:     cmd.prefixHandler,
+		strictPositionals: cmd.strictPositionals,
 	}
 
 	// Parse using standard parser
