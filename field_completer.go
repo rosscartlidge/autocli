@@ -114,8 +114,21 @@ func (fc *FieldCompleter) Complete(ctx CompletionContext) ([]string, error) {
 func (fc *FieldCompleter) getFilePathFromContext(ctx CompletionContext) string {
 	// Check GlobalFlags for the source flag value
 	if val, ok := ctx.GlobalFlags[fc.SourceFlag]; ok && val != nil {
-		if filePath, ok := val.(string); ok {
-			return filePath
+		// A variadic source holds a list: its first file names the
+		// fields (the files are expected to share them).
+		switch v := val.(type) {
+		case string:
+			return v
+		case []string:
+			if len(v) > 0 {
+				return v[0]
+			}
+		case []any:
+			if len(v) > 0 {
+				if s, ok := v[0].(string); ok {
+					return s
+				}
+			}
 		}
 	}
 

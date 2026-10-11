@@ -684,3 +684,23 @@ func TestAnalyzeCursor(t *testing.T) {
 		t.Errorf("-if field arg wrongly marked expression")
 	}
 }
+
+// TestFieldCompleter_VariadicSource: a FieldsFromFlag source that is a
+// variadic positional arrives as a list; its first file names the fields
+// (ssql's `from parquet A B -columns <TAB>`, whose files share one
+// schema). Only a string was read, so the completer fell back to the hint.
+func TestFieldCompleter_VariadicSource(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "a.csv")
+	os.WriteFile(first, []byte("id,name\n1,x\n"), 0o644)
+	fc := &FieldCompleter{SourceFlag: "FILE"}
+	for _, v := range []any{[]any{first, "missing.csv"}, []string{first}} {
+		got, err := fc.Complete(CompletionContext{GlobalFlags: map[string]any{"FILE": v}})
+		if err != nil || !reflect.DeepEqual(got, []string{"id", "name"}) {
+			t.Errorf("%T source: got %v (%v), want [id name]", v, got, err)
+		}
+	}
+	if got, _ := fc.Complete(CompletionContext{GlobalFlags: map[string]any{"FILE": []any{}}}); !reflect.DeepEqual(got, []string{FieldNameHint}) {
+		t.Errorf("empty list: got %v, want the hint", got)
+	}
+}
