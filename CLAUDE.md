@@ -408,37 +408,8 @@ positional mechanism (`--` already means RemainingArgs).
 
 ## Version History
 
-- **v0.1.0** - Initial release with clauses, positional args
-- **v0.2.0** - Subcommand support (major feature)
-  - Three-level flag scoping
-  - Full clause support in subcommands
-  - Shell completion for subcommands
-  - Comprehensive help generation
-- **v0.2.1** - Unix `--` support
-  - Context.RemainingArgs field
-  - Stops flag parsing at `--`
-  - Works with root, subcommands, clauses
-- **v1.0.0** - First stable release
-  - Added package-level `Version` constant
-  - Production-ready API
-  - Comprehensive documentation and examples
-- **v2.0.0** - Remove Bind() method
-  - Breaking: Removed Bind() method and reflection
-  - Added type-safe helper methods (GetBool, GetString, RequireString, etc.)
-  - No more global state anti-pattern
-  - Better testability and composability
-- **v2.1.0** - Nested subcommands support
-  - Multi-level command hierarchies (git remote add, docker container exec)
-  - Breaking: Context.Subcommand → Context.SubcommandPath
-  - Added helper methods: IsSubcommand(), IsSubcommandPath(), SubcommandName()
-  - Builder interface for fluent nested API
-  - Tree walking in parser and completion
-  - Recursive help/man page formatting
-  - Migration guide: docs/MIGRATION_v2.0_to_v2.1.md
-- **v2.1.1** - Fix fluent API return types (user contribution)
-  - Handler() and Example() return concrete types, not Builder interface
-  - Enables full method chaining: Subcommand().Example().Flag()
-  - Updated to /v2 module path for Go modules
+See `CHANGELOG.md` (Keep a Changelog), which carries every release from
+v4.0.0 and a summary of v0–v3.
 
 ## Building and Testing
 
@@ -454,33 +425,39 @@ source /tmp/comp.sh
 # Build main library
 go build
 
-# Push with tags
-git add <files>
-git commit -m "feat: Description"
-git tag -a v0.X.Y -m "Release notes"
-git push && git push --tags
 ```
+
+## Release Process
+
+Released the same way as ssql. The version is the `Version` constant in
+`flag.go`, WITHOUT the "v"; the tag is `vX.Y.Z`, annotated.
+
+1. As you work, add entries under `## [Unreleased]` in `CHANGELOG.md`
+   (Added / Changed / Fixed), written for a user of the library.
+2. To release: rename `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add a
+   fresh empty `## [Unreleased]` above it, and set `Version = "X.Y.Z"`.
+3. `go vet ./... && go test ./...` — `TestVersionMatchesChangelog` fails
+   if `Version` and the newest entry disagree.
+4. Commit (`release: vX.Y.Z`), then `git tag -a vX.Y.Z -m "vX.Y.Z: summary"`.
+5. Run `go test -run TestVersionMatchesChangelog .` again on the clean
+   tagged checkout: it now also checks the tag on HEAD names `Version`.
+6. `git push && git push origin vX.Y.Z`, then verify the proxy serves it:
+   `GOPROXY=direct go list -m github.com/rosscartlidge/autocli/v4@vX.Y.Z`.
+7. In ssql: `go get github.com/rosscartlidge/autocli/v4@vX.Y.Z`, and
+   remove any `replace` pointing at this checkout (a release never ships
+   with one).
+
+**Never re-tag or move a published tag** — the Go checksum database is
+immutable. A mistake in a release is fixed by the next patch release
+(v4.21.1 shipped with `Version = "4.0.0"`; v4.21.2 fixed it).
 
 ## Go Modules and Versioning
 
-**v2+ Module Path**: Starting with v2.0.0, the module path includes `/v2`:
+The module path carries the major version: `github.com/rosscartlidge/autocli/v4`
+(Go requires the `/vN` suffix from v2). A major bump means a new path
+(`/v5`) and is made only when explicitly requested. Import with an alias:
 ```go
-import "github.com/rosscartlidge/autocli/v3"
-```
-
-**Why**: Go modules require `/vN` suffix for major versions 2+
-
-**Migration**:
-- v1.x users: `import "github.com/rosscartlidge/autocli/v3"`
-- v2.x users: `import "github.com/rosscartlidge/autocli/v3"`
-
-**Tagging**:
-- v1.x: `git tag v1.2.3`
-- v2.x: `git tag v2.1.0` (module path has /v2 in go.mod)
-
-**Best Practice**: Use aliases to keep code clean:
-```go
-import cf "github.com/rosscartlidge/autocli/v3"
+import cf "github.com/rosscartlidge/autocli/v4"
 ```
 
 ## References

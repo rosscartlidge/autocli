@@ -9,8 +9,11 @@ import (
 	"time"
 )
 
-// Version is the completionflags library version
-const Version = "4.0.0"
+// Version is the autocli release, without the "v" of its tag. It is
+// bumped with each release and kept equal to the newest CHANGELOG.md
+// entry by TestVersionMatchesChangelog (it said 4.0.0 from v4.0.0 to
+// v4.21.1).
+const Version = "4.21.2"
 
 // Command represents a CLI command with flags, clauses, and completion support
 type Command struct {
