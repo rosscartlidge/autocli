@@ -447,6 +447,15 @@ Released the same way as ssql. The version is the `Version` constant in
    remove any `replace` pointing at this checkout (a release never ships
    with one).
 
+**The nested modules `shell/` and `ssh/`** are released the same way,
+each with its own `CHANGELOG.md`, its own `Version` constant (in
+`version.go`) and its own `TestVersionMatchesChangelog`; their tags carry
+the directory: `shell/vX.Y.Z`, `ssh/vX.Y.Z`. Run the steps inside the
+module's directory. Release `shell` before `ssh` (ssh requires shell, and
+both require autocli), and raise a dependent's `require` when it needs the
+new release. Verify with
+`GOPROXY=direct go list -m github.com/rosscartlidge/autocli/shell@vX.Y.Z`.
+
 **Never re-tag or move a published tag** — the Go checksum database is
 immutable. A mistake in a release is fixed by the next patch release
 (v4.21.1 shipped with `Version = "4.0.0"`; v4.21.2 fixed it).
