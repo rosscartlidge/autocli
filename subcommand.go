@@ -606,15 +606,9 @@ func formatFlagForSubcommand(spec *FlagSpec) string {
 	sb.WriteString(strings.Join(spec.Names, ", "))
 
 	// Arguments
-	if spec.ArgCount > 0 {
-		for i := 0; i < spec.ArgCount; i++ {
-			sb.WriteString(" ")
-			if i < len(spec.ArgNames) {
-				sb.WriteString(spec.ArgNames[i])
-			} else {
-				sb.WriteString(fmt.Sprintf("ARG%d", i))
-			}
-		}
+	for i := 0; i < spec.ArgCount; i++ {
+		sb.WriteString(" ")
+		sb.WriteString(spec.argLabel(i))
 	}
 
 	sb.WriteString("\n")
@@ -727,15 +721,9 @@ func (subcmd *Subcommand) GenerateManPage(parentName string) string {
 		sb.WriteString(strings.Join(spec.Names, ", "))
 
 		// Arguments
-		if spec.ArgCount > 0 {
-			for i := 0; i < spec.ArgCount; i++ {
-				sb.WriteString(" ")
-				if i < len(spec.ArgNames) {
-					sb.WriteString(spec.ArgNames[i])
-				} else {
-					sb.WriteString(fmt.Sprintf("ARG%d", i))
-				}
-			}
+		for i := 0; i < spec.ArgCount; i++ {
+			sb.WriteString(" ")
+			sb.WriteString(spec.argLabel(i))
 		}
 		sb.WriteString("\n")
 
@@ -971,6 +959,9 @@ func (sfb *SubcommandFlagBuilder) FieldsFromFlag(flagName string) *SubcommandFla
 
 // Arg starts defining a new argument
 func (sfb *SubcommandFlagBuilder) Arg(name string) *SubcommandArgBuilder {
+	if sfb.spec.ArgRepeat != nil {
+		panic(fmt.Sprintf("autocli: flag %s: Arg(%q) after a repeating Arg; Repeat() must be on the last Arg", sfb.spec.Names[0], name))
+	}
 	// On first call, clear default setup
 	if sfb.spec.ArgCount == 1 && len(sfb.spec.ArgNames) == 1 && sfb.spec.ArgNames[0] == "VALUE" {
 		sfb.spec.ArgCount = 0
@@ -1040,6 +1031,17 @@ func (sab *SubcommandArgBuilder) Expression() *SubcommandArgBuilder {
 		spec.ArgExpr = append(spec.ArgExpr, false)
 	}
 	spec.ArgExpr[sab.argIndex] = true
+	return sab
+}
+
+// Repeat makes this (last) argument repeat: f decides, from the fixed
+// arguments typed before it, how many values follow — see
+// FlagSpec.ArgRepeat and ArgBuilder.Repeat.
+func (sab *SubcommandArgBuilder) Repeat(f ArityFunc) *SubcommandArgBuilder {
+	if sab.argIndex != len(sab.sfb.spec.ArgNames)-1 {
+		panic(fmt.Sprintf("autocli: flag %s: Repeat() on Arg %q, which is not the last Arg", sab.sfb.spec.Names[0], sab.sfb.spec.ArgNames[sab.argIndex]))
+	}
+	sab.sfb.spec.ArgRepeat = f
 	return sab
 }
 

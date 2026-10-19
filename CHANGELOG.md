@@ -10,6 +10,22 @@ constant, the newest entry below and a tag on HEAD in agreement.
 
 ## [Unreleased]
 
+## [4.22.0] - 2026-10-20
+
+### Added
+
+- **A repeating last Arg with a command-decided count**: `Arg("args").Repeat(f)`
+  on a flag's last argument makes it take N values, N returned by
+  `f(prev []string) (int, error)` from the fixed arguments typed before it
+  (`FlagSpec.ArgRepeat`, type `ArityFunc`). The parser consumes exactly N
+  words (the callback's error is the flag's parse error; too few values is
+  "requires N value(s) for ARG, got M"), stores them as a `[]interface{}`
+  under the Arg's name, and completion reuses the Arg's completer for every
+  value within the count and offers flag names after the last. Help, man,
+  help-at and `-spec-json` (`"repeat": true`) show the Arg as `NAME...`.
+  Built for ssql's expression macros (DFC152): `-set-macro FIELD NAME
+  ARG...` where the macro definition knows how many fields follow NAME.
+
 ## [4.21.2] - 2026-10-11
 
 ### Added

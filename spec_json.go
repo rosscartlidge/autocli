@@ -20,6 +20,7 @@ type SpecArg struct {
 	Name       string   `json:"name"`
 	Type       string   `json:"type,omitempty"`
 	Expression bool     `json:"expression,omitempty"`
+	Repeat     bool     `json:"repeat,omitempty"`     // last arg: repeats, count decided by the command (FlagSpec.ArgRepeat)
 	Completer  string   `json:"completer"`            // static|file|fields|field-values|none|custom
 	Options    []string `json:"options,omitempty"`    // static: the enum, inline
 	Pattern    string   `json:"pattern,omitempty"`    // file: glob
@@ -106,6 +107,9 @@ func specFlag(fs *FlagSpec) SpecFlag {
 		}
 		if i < len(fs.ArgExpr) && fs.ArgExpr[i] {
 			a.Expression = true
+		}
+		if fs.ArgRepeat != nil && i == fs.ArgCount-1 {
+			a.Repeat = true
 		}
 		sf.Args = append(sf.Args, a)
 	}

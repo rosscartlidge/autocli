@@ -211,11 +211,7 @@ func (cmd *Command) formatManFlag(spec *FlagSpec) string {
 		// Flags with arguments: .BI \-flag1|\-flag2 " ARG1 ARG2"
 		args := make([]string, spec.ArgCount)
 		for j := 0; j < spec.ArgCount; j++ {
-			argName := "ARG"
-			if j < len(spec.ArgNames) {
-				argName = spec.ArgNames[j]
-			}
-			args[j] = argName
+			args[j] = spec.argLabel(j)
 		}
 		sb.WriteString(fmt.Sprintf(".BI %s \" %s\"\n",
 			flagNames,

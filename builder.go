@@ -319,6 +319,9 @@ func (fb *FlagBuilder) FieldsFromFlag(flagName string) *FlagBuilder {
 
 // Arg starts defining a new argument (fluent API alternative to Args() + ArgName/ArgType/ArgCompleter)
 func (fb *FlagBuilder) Arg(name string) *ArgBuilder {
+	if fb.spec.ArgRepeat != nil {
+		panic(fmt.Sprintf("autocli: flag %s: Arg(%q) after a repeating Arg; Repeat() must be on the last Arg", fb.spec.Names[0], name))
+	}
 	// On first call, clear the default single-arg setup
 	if fb.spec.ArgCount == 1 && len(fb.spec.ArgNames) == 1 && fb.spec.ArgNames[0] == "VALUE" {
 		fb.spec.ArgCount = 0
@@ -386,6 +389,19 @@ func (ab *ArgBuilder) Expression() *ArgBuilder {
 		spec.ArgExpr = append(spec.ArgExpr, false)
 	}
 	spec.ArgExpr[ab.argIndex] = true
+	return ab
+}
+
+// Repeat makes this (last) argument repeat: f decides, from the fixed
+// arguments typed before it, how many values follow — see
+// FlagSpec.ArgRepeat. The values are stored as a []interface{} under this
+// argument's name; completion reuses this argument's completer for each
+// of them and offers flag names after the last.
+func (ab *ArgBuilder) Repeat(f ArityFunc) *ArgBuilder {
+	if ab.argIndex != len(ab.fb.spec.ArgNames)-1 {
+		panic(fmt.Sprintf("autocli: flag %s: Repeat() on Arg %q, which is not the last Arg", ab.fb.spec.Names[0], ab.fb.spec.ArgNames[ab.argIndex]))
+	}
+	ab.fb.spec.ArgRepeat = f
 	return ab
 }
 

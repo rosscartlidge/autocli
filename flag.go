@@ -13,7 +13,7 @@ import (
 // bumped with each release and kept equal to the newest CHANGELOG.md
 // entry by TestVersionMatchesChangelog (it said 4.0.0 from v4.0.0 to
 // v4.21.1).
-const Version = "4.21.2"
+const Version = "4.22.0"
 
 // Command represents a CLI command with flags, clauses, and completion support
 type Command struct {
@@ -73,6 +73,17 @@ type FlagSpec struct {
 	// instead of hand-maintaining a (command, flag, argIdx) table.
 	ArgExpr []bool
 
+	// ArgRepeat, when set, makes the LAST declared Arg repeat: how many
+	// values it takes is decided per occurrence by this callback from the
+	// fixed args before it (the first ArgCount-1 words after the flag),
+	// so the command that owns the fact — "macro add3 takes 3 fields" —
+	// answers the parser and the completer, and neither guesses where the
+	// arguments end. The repeated values are stored as a []interface{}
+	// under the last ArgName. The callback's error is the parse error for
+	// the flag (an unknown name, say); during completion it means "no
+	// completions". Set via Arg(...).Repeat(f).
+	ArgRepeat ArityFunc
+
 	// Display
 	Hidden      bool          // Hide from help/man (for internal flags)
 
@@ -82,6 +93,59 @@ type FlagSpec struct {
 	// subcommand's flag set, so a subcommand's own options aren't drowned
 	// out by global meta-flags. Completion-only; ignored by help/man/exec.
 	demoted bool
+}
+
+// ArityFunc decides how many values a repeating last Arg takes, given the
+// flag's fixed arguments as typed (see FlagSpec.ArgRepeat).
+type ArityFunc func(prev []string) (int, error)
+
+// argWidth is how many words the flag's arguments occupy when the flag
+// itself is args[pos]: ArgCount for an ordinary flag; the fixed args plus
+// the callback's count for a flag with a repeating last Arg. An error
+// means the fixed args are not all present or the callback refused them.
+func (spec *FlagSpec) argWidth(args []string, pos int) (int, error) {
+	if spec.ArgRepeat == nil {
+		return spec.ArgCount, nil
+	}
+	fixed := spec.ArgCount - 1
+	if pos+fixed >= len(args) {
+		return 0, fmt.Errorf("requires %d argument(s) before %s", fixed, spec.ArgNames[fixed])
+	}
+	n, err := spec.ArgRepeat(args[pos+1 : pos+1+fixed])
+	if err != nil {
+		return 0, err
+	}
+	if n < 0 {
+		n = 0
+	}
+	return fixed + n, nil
+}
+
+// argWidthOrCount is argWidth for walkers that only skip a flag's
+// arguments (positional scans, cursor analysis): when the width cannot be
+// decided — fixed args missing, callback error — they skip the fixed args
+// and let the parser report the problem.
+func (spec *FlagSpec) argWidthOrCount(args []string, pos int) int {
+	if w, err := spec.argWidth(args, pos); err == nil {
+		return w
+	}
+	if spec.ArgRepeat != nil {
+		return spec.ArgCount - 1
+	}
+	return spec.ArgCount
+}
+
+// argLabel is the display name of argument i: ArgNames[i] (ARGi when
+// unnamed), with "..." on a repeating last Arg.
+func (spec *FlagSpec) argLabel(i int) string {
+	name := fmt.Sprintf("ARG%d", i)
+	if i < len(spec.ArgNames) && spec.ArgNames[i] != "" {
+		name = spec.ArgNames[i]
+	}
+	if spec.ArgRepeat != nil && i == spec.ArgCount-1 {
+		name += "..."
+	}
+	return name
 }
 
 // ArgFlag is the reserved flag form of a positional argument, available on
@@ -512,7 +576,7 @@ func (cmd *Command) positionalValues(args []string) []string {
 				normalized = "-" + arg[1:]
 			}
 			if spec := cmd.findFlagSpec(normalized); spec != nil {
-				i += spec.ArgCount
+				i += spec.argWidthOrCount(args, i)
 			}
 			continue
 		}
@@ -544,7 +608,7 @@ func (cmd *Command) isArgFlagValue(args []string, idx int) bool {
 				normalized = "-" + arg[1:]
 			}
 			if spec := cmd.findFlagSpec(normalized); spec != nil {
-				i += spec.ArgCount
+				i += spec.argWidthOrCount(args, i)
 			}
 		}
 	}

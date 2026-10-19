@@ -265,15 +265,9 @@ func (cmd *Command) formatFlag(spec *FlagSpec) string {
 	sb.WriteString(strings.Join(spec.Names, ", "))
 
 	// Arguments
-	if spec.ArgCount > 0 {
-		for i := 0; i < spec.ArgCount; i++ {
-			sb.WriteString(" ")
-			if i < len(spec.ArgNames) {
-				sb.WriteString(spec.ArgNames[i])
-			} else {
-				sb.WriteString(fmt.Sprintf("ARG%d", i))
-			}
-		}
+	for i := 0; i < spec.ArgCount; i++ {
+		sb.WriteString(" ")
+		sb.WriteString(spec.argLabel(i))
 	}
 
 	sb.WriteString("\n")

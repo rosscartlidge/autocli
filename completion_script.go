@@ -397,6 +397,26 @@ func (cmd *Command) analyzeCompletionContext(args []string, pos int) CompletionC
 	return ctx
 }
 
+// completerIndex maps the cursor's ArgIndex to the Arg whose completer
+// applies: the index itself for an ordinary flag; for a repeating last
+// Arg, that Arg while the cursor is within the count the callback gives
+// for the fixed args typed so far, and -1 (fall through to flag names)
+// after it or when the callback refuses.
+func (spec *FlagSpec) completerIndex(ctx CompletionContext) int {
+	last := spec.ArgCount - 1
+	if spec.ArgRepeat == nil || ctx.ArgIndex < last {
+		return ctx.ArgIndex
+	}
+	if len(ctx.PreviousArgs) < last {
+		return -1
+	}
+	n, err := spec.ArgRepeat(ctx.PreviousArgs[:last])
+	if err != nil || ctx.ArgIndex >= last+n {
+		return -1
+	}
+	return last
+}
+
 // findLastFlag finds the most recent flag before the current position
 func (cmd *Command) findLastFlag(args []string, pos int) (int, *FlagSpec) {
 	for i := pos - 1; i >= 0; i-- {
@@ -446,9 +466,12 @@ func (cmd *Command) executeCompletion(ctx CompletionContext) ([]string, error) {
 	// Case 2: Completing a flag argument
 	if ctx.FlagName != "" {
 		spec := cmd.findFlagSpec(ctx.FlagName)
-		if spec != nil && ctx.ArgIndex >= 0 && ctx.ArgIndex < len(spec.ArgCompleters) {
-			completer := spec.ArgCompleters[ctx.ArgIndex]
-			return completer.Complete(ctx)
+		if spec != nil && ctx.ArgIndex >= 0 {
+			idx := spec.completerIndex(ctx)
+			if idx >= 0 && idx < len(spec.ArgCompleters) {
+				completer := spec.ArgCompleters[idx]
+				return completer.Complete(ctx)
+			}
 		}
 		// If ArgIndex is out of bounds for this flag, fall through
 	}

@@ -137,13 +137,13 @@ func (cmd *Command) renderFlagHelp(spec *FlagSpec, currentArg int) string {
 	sb.WriteString(strings.Join(spec.Names, ", "))
 	for i := 0; i < spec.ArgCount; i++ {
 		sb.WriteString(" ")
-		if i < len(spec.ArgNames) && spec.ArgNames[i] != "" {
-			sb.WriteString(spec.ArgNames[i])
-		} else {
-			sb.WriteString(fmt.Sprintf("ARG%d", i))
-		}
+		sb.WriteString(spec.argLabel(i))
 	}
 	sb.WriteString("\n")
+	// Every value of a repeating last Arg is that Arg.
+	if spec.ArgRepeat != nil && currentArg >= spec.ArgCount {
+		currentArg = spec.ArgCount - 1
+	}
 
 	if spec.Description != "" {
 		sb.WriteString(fmt.Sprintf("    %s\n", spec.Description))
@@ -151,10 +151,7 @@ func (cmd *Command) renderFlagHelp(spec *FlagSpec, currentArg int) string {
 
 	// Per-argument detail, marking the one under the cursor.
 	for i := 0; i < spec.ArgCount; i++ {
-		name := fmt.Sprintf("ARG%d", i)
-		if i < len(spec.ArgNames) && spec.ArgNames[i] != "" {
-			name = spec.ArgNames[i]
-		}
+		name := spec.argLabel(i)
 		marker := "  "
 		if i == currentArg {
 			marker = "→ "

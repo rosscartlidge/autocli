@@ -421,16 +421,22 @@ func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, ctx *Conte
 		return 1, nil
 	}
 
-	// Check we have enough arguments
-	if pos+spec.ArgCount >= len(args) {
-		return 0, ParseError{
-			Flag:    flagArg,
-			Message: fmt.Sprintf("requires %d argument(s)", spec.ArgCount),
+	// Check we have enough arguments. A repeating last Arg asks the
+	// command how many (FlagSpec.ArgRepeat); its refusal is the error.
+	width, err := spec.argWidth(args, pos)
+	if err != nil {
+		return 0, ParseError{Flag: flagArg, Message: err.Error()}
+	}
+	if pos+width >= len(args) {
+		msg := fmt.Sprintf("requires %d argument(s)", width)
+		if spec.ArgRepeat != nil {
+			msg = fmt.Sprintf("requires %d value(s) for %s, got %d", width-(spec.ArgCount-1), spec.ArgNames[spec.ArgCount-1], len(args)-pos-spec.ArgCount)
 		}
+		return 0, ParseError{Flag: flagArg, Message: msg}
 	}
 
 	// Parse arguments
-	if spec.ArgCount == 1 && !hasPlus {
+	if spec.ArgCount == 1 && !hasPlus && spec.ArgRepeat == nil {
 		// Check if we need deferred parsing
 		needsDeferred := spec.ArgTypes[0] == ArgTime && spec.TimeZoneFromFlag != ""
 
@@ -477,7 +483,11 @@ func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, ctx *Conte
 
 	// Multi-argument flag
 	argMap := make(map[string]interface{})
-	for i := 0; i < spec.ArgCount; i++ {
+	fixed := spec.ArgCount
+	if spec.ArgRepeat != nil {
+		fixed = spec.ArgCount - 1
+	}
+	for i := 0; i < fixed; i++ {
 		value, err := parseArgValue(args[pos+1+i], spec.ArgTypes[i], spec, ctx.GlobalFlags)
 		if err != nil {
 			return 0, ParseError{
@@ -486,6 +496,22 @@ func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, ctx *Conte
 			}
 		}
 		argMap[spec.ArgNames[i]] = value
+	}
+	if spec.ArgRepeat != nil {
+		// The repeating last Arg: width-fixed values, typed like the Arg.
+		last := spec.ArgCount - 1
+		values := make([]interface{}, 0, width-fixed)
+		for i := fixed; i < width; i++ {
+			value, err := parseArgValue(args[pos+1+i], spec.ArgTypes[last], spec, ctx.GlobalFlags)
+			if err != nil {
+				return 0, ParseError{
+					Flag:    flagArg,
+					Message: fmt.Sprintf("invalid argument %d: %v", i, err),
+				}
+			}
+			values = append(values, value)
+		}
+		argMap[spec.ArgNames[last]] = values
 	}
 
 	// Apply prefix handler
@@ -504,7 +530,7 @@ func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, ctx *Conte
 		target[spec.Names[0]] = finalValue
 	}
 
-	return 1 + spec.ArgCount, nil
+	return 1 + width, nil
 }
 
 // parseArgValue converts a string to the appropriate type
@@ -829,12 +855,16 @@ func (cmd *Command) parseRootGlobalFlags(args []string) (map[string]interface{},
 			i++
 		} else {
 			// Flag with arguments
-			if i+spec.ArgCount >= len(args) {
-				return nil, nil, fmt.Errorf("flag %s requires %d argument(s)", spec.Names[0], spec.ArgCount)
+			width, err := spec.argWidth(args, i)
+			if err != nil {
+				return nil, nil, fmt.Errorf("flag %s: %v", spec.Names[0], err)
+			}
+			if i+width >= len(args) {
+				return nil, nil, fmt.Errorf("flag %s requires %d argument(s)", spec.Names[0], width)
 			}
 
 			// Parse the arguments
-			if spec.ArgCount == 1 {
+			if spec.ArgCount == 1 && spec.ArgRepeat == nil {
 				// Single argument
 				value, err := parseArgValue(args[i+1], spec.ArgTypes[0], spec, flags)
 				if err != nil {
@@ -844,17 +874,33 @@ func (cmd *Command) parseRootGlobalFlags(args []string) (map[string]interface{},
 			} else {
 				// Multi-argument flag
 				argMap := make(map[string]interface{})
-				for j := 0; j < spec.ArgCount; j++ {
+				fixed := spec.ArgCount
+				if spec.ArgRepeat != nil {
+					fixed = spec.ArgCount - 1
+				}
+				for j := 0; j < fixed; j++ {
 					value, err := parseArgValue(args[i+1+j], spec.ArgTypes[j], spec, flags)
 					if err != nil {
 						return nil, nil, fmt.Errorf("flag %s argument %d: %v", spec.Names[0], j, err)
 					}
 					argMap[spec.ArgNames[j]] = value
 				}
+				if spec.ArgRepeat != nil {
+					last := spec.ArgCount - 1
+					values := make([]interface{}, 0, width-fixed)
+					for j := fixed; j < width; j++ {
+						value, err := parseArgValue(args[i+1+j], spec.ArgTypes[last], spec, flags)
+						if err != nil {
+							return nil, nil, fmt.Errorf("flag %s argument %d: %v", spec.Names[0], j, err)
+						}
+						values = append(values, value)
+					}
+					argMap[spec.ArgNames[last]] = values
+				}
 				flags[spec.Names[0]] = argMap
 			}
 
-			i += 1 + spec.ArgCount
+			i += 1 + width
 		}
 	}
 
