@@ -410,6 +410,7 @@ func (cmd *Command) parseFlag(args []string, pos int, clause *Clause, ctx *Conte
 		target = ctx.GlobalFlags
 	} else {
 		target = clause.Flags
+		clause.Order = append(clause.Order, spec.Names[0])
 	}
 
 	// Parse based on argument count

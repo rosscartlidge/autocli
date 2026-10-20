@@ -13,7 +13,7 @@ import (
 // bumped with each release and kept equal to the newest CHANGELOG.md
 // entry by TestVersionMatchesChangelog (it said 4.0.0 from v4.0.0 to
 // v4.21.1).
-const Version = "4.22.0"
+const Version = "4.23.0"
 
 // Command represents a CLI command with flags, clauses, and completion support
 type Command struct {
@@ -215,9 +215,17 @@ const (
 
 // Clause represents a group of arguments separated by + or -
 type Clause struct {
-	Separator  string                    // "+" or "-" that started this clause (empty for first)
-	Flags      map[string]interface{}    // Parsed flag values for this clause
-	Positional []string                  // Unparsed positional arguments in this clause
+	Separator  string                 // "+" or "-" that started this clause (empty for first)
+	Flags      map[string]interface{} // Parsed flag values for this clause
+	Positional []string               // Unparsed positional arguments in this clause
+	// Order is the clause's local flags as they occurred, one entry per
+	// occurrence, by the canonical name Flags is keyed with (a + spelling
+	// records the same name). Flags is a map, so a consumer that applies
+	// several flags' values in the order the user wrote them (ssql's
+	// update: -set, -set-expr, -set-field of one clause) reads it here —
+	// walk Order with a counter per name into that flag's accumulated
+	// list — rather than re-parse RawArgs.
+	Order []string
 }
 
 // Context is passed to handler with all parsed clauses

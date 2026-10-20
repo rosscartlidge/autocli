@@ -10,6 +10,20 @@ constant, the newest entry below and a tag on HEAD in agreement.
 
 ## [Unreleased]
 
+## [4.23.0] - 2026-10-20
+
+### Added
+
+- **`Clause.Order`**: the clause's local flags in the order they occurred,
+  one entry per occurrence, by the canonical name `Flags` is keyed with (a
+  `+` spelling records the same name). `Flags` is a map, so a consumer that
+  must apply several flags' values in the order the user wrote them reads
+  it here — walk `Order` with a counter per name into that flag's
+  accumulated list — instead of re-parsing `RawArgs` with a second copy of
+  the grammar. Built for ssql's `update`, whose `-set`, `-set-expr` and
+  `-set-field` of one clause were applied in a different order by each of
+  its four backends.
+
 ## [4.22.0] - 2026-10-20
 
 ### Added
