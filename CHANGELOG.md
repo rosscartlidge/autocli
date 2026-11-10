@@ -10,6 +10,15 @@ constant, the newest entry below and a tag on HEAD in agreement.
 
 ## [Unreleased]
 
+## [4.23.1] - 2026-11-10
+
+### Fixed
+
+- **`HelpAt` headed a nested subcommand's help with its last word only**:
+  the cursor in `prog from csv FILE` gave "prog csv - …" where `-help`
+  gives "prog from csv - …". `-help`, `-man` and `HelpAt` now share one
+  `helpParent`, which joins the program and the path before the leaf.
+
 ## [4.23.0] - 2026-10-20
 
 ### Added

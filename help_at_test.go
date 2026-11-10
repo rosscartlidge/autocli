@@ -107,3 +107,28 @@ func TestHelpAt_Protocol(t *testing.T) {
 		t.Errorf("protocol help missing flag description:\n%s", buf.String())
 	}
 }
+
+// TestHelpAt_NestedHeading: help at the cursor heads a nested subcommand's
+// help with its whole path, as -help does ("prog from csv", not "prog csv").
+func TestHelpAt_NestedHeading(t *testing.T) {
+	cmd := NewCommand("prog").
+		Subcommand("from").
+			Description("Read data").
+			Subcommand("csv").
+				Description("Read CSV").
+				Flag("FILE").
+					String().
+					Help("The file").
+					Done().
+				Handler(func(ctx *Context) error { return nil }).
+				Done().
+			Done().
+		Build()
+	text, err := cmd.HelpAt([]string{"from", "csv", "x.csv"}, 3)
+	if err != nil {
+		t.Fatalf("HelpAt: %v", err)
+	}
+	if first := strings.SplitN(text, "\n", 2)[0]; !strings.HasPrefix(first, "prog from csv - ") {
+		t.Errorf("HelpAt heading %q, want it to start %q", first, "prog from csv - ")
+	}
+}

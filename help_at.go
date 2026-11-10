@@ -85,7 +85,7 @@ func (cmd *Command) HelpAt(args []string, pos int) (string, error) {
 		return text, nil
 	}
 	// No specific flag under the cursor → the leaf command's full help.
-	return leafSubcmd.GenerateHelp(cmd.name), nil
+	return leafSubcmd.GenerateHelp(helpParent(cmd.name, path)), nil
 }
 
 // flagHelpAt returns flag-focused help when the cursor sits on a flag token

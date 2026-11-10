@@ -89,10 +89,7 @@ func (cmd *Command) ExecuteWith(args []string, base *Context) error {
 			// e.g. `ssql to table -help` renders "ssql to table", not
 			// "ssql table".
 			if argIndex < len(remaining) {
-				parent := cmd.name
-				if len(path) > 1 {
-					parent = cmd.name + " " + strings.Join(path[:len(path)-1], " ")
-				}
+				parent := helpParent(cmd.name, path)
 				switch remaining[argIndex] {
 				case "-help", "--help", "-h":
 					fmt.Fprintln(base.Stdout(), subcmd.GenerateHelp(parent))
@@ -117,11 +114,7 @@ func (cmd *Command) ExecuteWith(args []string, base *Context) error {
 			// Check if this is an intermediate node with no handler
 			if leafSubcmd.Handler == nil && len(leafSubcmd.Subcommands) > 0 {
 				// Intermediate node with no handler - show help (full parent path)
-				parent := cmd.name
-				if len(path) > 1 {
-					parent = cmd.name + " " + strings.Join(path[:len(path)-1], " ")
-				}
-				fmt.Fprintln(base.Stdout(), leafSubcmd.GenerateHelp(parent))
+				fmt.Fprintln(base.Stdout(), leafSubcmd.GenerateHelp(helpParent(cmd.name, path)))
 				return nil
 			}
 
@@ -959,4 +952,14 @@ func (cmd *Command) validateSubcommand(subcmd *Subcommand, ctx *Context) error {
 	}
 
 	return tempCmd.validate(ctx)
+}
+
+// helpParent is the name a subcommand's help is headed under: the program
+// and every subcommand on path before the last, so `prog to table` is
+// headed "prog to table", not "prog table". -help, -man and HelpAt share it.
+func helpParent(prog string, path []string) string {
+	if len(path) <= 1 {
+		return prog
+	}
+	return prog + " " + strings.Join(path[:len(path)-1], " ")
 }
