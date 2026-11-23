@@ -211,8 +211,11 @@ func (cmd *Command) Parse(args []string) (*Context, error) {
 	}
 
 	i := 0
+	afterFlag := "" // the flag whose arguments args[i] directly follows
 	for i < len(args) {
 		arg := args[i]
+		after := afterFlag
+		afterFlag = ""
 
 		// Check for -- (end of flag parsing)
 		if arg == "--" {
@@ -245,7 +248,7 @@ func (cmd *Command) Parse(args []string) (*Context, error) {
 			if i+1 >= len(args) {
 				return nil, ParseError{Flag: arg, Message: "requires 1 argument(s)"}
 			}
-			currentClause.Positional = append(currentClause.Positional, args[i+1])
+			currentClause.addPositional(args[i+1], "")
 			i += 2
 			continue
 		}
@@ -259,12 +262,13 @@ func (cmd *Command) Parse(args []string) (*Context, error) {
 			if err != nil {
 				return nil, err
 			}
+			afterFlag = flagTakes(arg, cmd.findFlagSpec("-"+strings.TrimLeft(arg, "+-")))
 			i += consumed
 			continue
 		}
 
 		// Positional argument
-		currentClause.Positional = append(currentClause.Positional, arg)
+		currentClause.addPositional(arg, after)
 		i++
 	}
 
@@ -715,7 +719,7 @@ func (cmd *Command) matchPositionals(ctx *Context) error {
 		// StrictPositionals nothing may be given.
 		for _, c := range ctx.Clauses {
 			if strict && len(c.Positional) > 0 {
-				return cmd.unexpectedPositional(c.Positional[0])
+				return cmd.unexpectedPositional(c.Positional[0], c.positionalAfter(0))
 			}
 		}
 		return nil
@@ -741,7 +745,13 @@ func (cmd *Command) matchPositionals(ctx *Context) error {
 			return err
 		}
 		// Remove consumed args from first clause
-		ctx.Clauses[0].Positional = positionalArgs[consumed:]
+		c := &ctx.Clauses[0]
+		c.Positional = positionalArgs[consumed:]
+		if consumed < len(c.after) {
+			c.after = c.after[consumed:]
+		} else {
+			c.after = nil
+		}
 	}
 
 	// Match local positionals in each clause
@@ -757,7 +767,7 @@ func (cmd *Command) matchPositionals(ctx *Context) error {
 			// Note: we keep remaining positional args in clause for backward compatibility
 		}
 		if strict && consumed < len(positionalArgs) {
-			return cmd.unexpectedPositional(positionalArgs[consumed])
+			return cmd.unexpectedPositional(positionalArgs[consumed], ctx.Clauses[i].positionalAfter(consumed))
 		}
 	}
 
@@ -765,16 +775,38 @@ func (cmd *Command) matchPositionals(ctx *Context) error {
 }
 
 // unexpectedPositional is the StrictPositionals error for an argument no
-// positional spec consumed.
-func (cmd *Command) unexpectedPositional(arg string) error {
+// positional spec consumed. after is what the argument came straight
+// after when that was a flag ("-rank takes 1 argument (result)"): the
+// likeliest mistake is that flag given one argument too many, so the
+// error leads with it.
+func (cmd *Command) unexpectedPositional(arg, after string) error {
 	name := cmd.name
 	if name == "" {
 		name = "this command"
 	}
-	if len(cmd.positionalFlags()) == 0 {
-		return fmt.Errorf("unexpected argument %q: %s takes no positional arguments (see -help)", arg, name)
+	lead := ""
+	if after != "" {
+		lead = fmt.Sprintf("%s, so %q is left over; ", after, arg)
 	}
-	return fmt.Errorf("unexpected argument %q: %s takes no further positional arguments (see -help)", arg, name)
+	if len(cmd.positionalFlags()) == 0 {
+		return fmt.Errorf("unexpected argument %q: %s%s takes no positional arguments (see -help)", arg, lead, name)
+	}
+	return fmt.Errorf("unexpected argument %q: %s%s takes no further positional arguments (see -help)", arg, lead, name)
+}
+
+// flagTakes says what flag (as written) takes: "-rank takes 1 argument
+// (result)", "-desc takes no arguments". "" for a flag whose count its
+// earlier arguments decide (Repeat), where "too many" has no one answer.
+func flagTakes(written string, spec *FlagSpec) string {
+	switch {
+	case spec == nil || spec.ArgRepeat != nil:
+		return ""
+	case spec.ArgCount == 0:
+		return written + " takes no arguments"
+	case spec.ArgCount == 1:
+		return fmt.Sprintf("%s takes 1 argument (%s)", written, strings.Join(spec.ArgNames, " "))
+	}
+	return fmt.Sprintf("%s takes %d arguments (%s)", written, spec.ArgCount, strings.Join(spec.ArgNames, " "))
 }
 
 // matchPositionalsToSpecs matches positional arguments to specs and stores in target map

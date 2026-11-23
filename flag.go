@@ -13,7 +13,7 @@ import (
 // bumped with each release and kept equal to the newest CHANGELOG.md
 // entry by TestVersionMatchesChangelog (it said 4.0.0 from v4.0.0 to
 // v4.21.1).
-const Version = "4.23.1"
+const Version = "4.23.2"
 
 // Command represents a CLI command with flags, clauses, and completion support
 type Command struct {
@@ -226,6 +226,29 @@ type Clause struct {
 	// walk Order with a counter per name into that flag's accumulated
 	// list — rather than re-parse RawArgs.
 	Order []string
+
+	// after[i] says what Positional[i] came straight after, when that was
+	// a flag's last argument ("-rank takes 1 argument (result)"): a
+	// stray positional there is most likely that flag given too many,
+	// and unexpectedPositional says so. Parallel to Positional.
+	after []string
+}
+
+// addPositional appends a positional argument and what it came after.
+func (c *Clause) addPositional(arg, after string) {
+	for len(c.after) < len(c.Positional) {
+		c.after = append(c.after, "")
+	}
+	c.Positional = append(c.Positional, arg)
+	c.after = append(c.after, after)
+}
+
+// positionalAfter is what Positional[i] came straight after, or "".
+func (c *Clause) positionalAfter(i int) string {
+	if i < len(c.after) {
+		return c.after[i]
+	}
+	return ""
 }
 
 // Context is passed to handler with all parsed clauses

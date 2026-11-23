@@ -10,6 +10,20 @@ constant, the newest entry below and a tag on HEAD in agreement.
 
 ## [Unreleased]
 
+## [4.23.2] - 2026-11-24
+
+### Fixed
+
+- **A stray argument after a flag did not say which flag it overflowed**:
+  under `StrictPositionals`, `window -rank salary dept_rank` (where
+  `-rank` takes one argument) said only "unexpected argument
+  \"dept_rank\": window takes no positional arguments". When the stray
+  argument comes straight after a flag's arguments, the error now leads
+  with that flag and what it takes: "-rank takes 1 argument (result), so
+  \"dept_rank\" is left over; window takes no positional arguments".
+  A flag whose count its earlier arguments decide (`Repeat`) keeps the
+  plain message.
+
 ## [4.23.1] - 2026-11-10
 
 ### Fixed
